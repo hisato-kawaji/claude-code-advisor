@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: claude-analytics-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL}
+      - CLAUDE_DATA_PATH=/claude-data
+      - DATABASE_PATH=/data/analytics.db
+    volumes:
+      - ${HOME}/.claude:/claude-data:ro
+      - ./data:/data
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: claude-analytics-frontend
+    ports:
+      - "3332:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
