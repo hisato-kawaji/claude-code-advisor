@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { ComparisonStats, PerformanceAnalysis, BestPracticesCheck, PromptImprovement, RecentPrompt } from './types';
+import type { ComparisonStats, PerformanceAnalysis, BestPracticesCheck, PromptImprovement, RecentPrompt, TokenReflection } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -39,4 +39,7 @@ export const analysisApi = {
 
   getRecentPrompts: (limit: number = 10) =>
     api.get<{ prompts: RecentPrompt[] }>('/api/analysis/recent-prompts', { params: { limit } }),
+
+  getTokenReflection: (days: number = 7) =>
+    api.get<TokenReflection>('/api/analysis/token-reflection', { params: { days } }),
 };

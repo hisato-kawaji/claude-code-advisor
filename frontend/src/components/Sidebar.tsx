@@ -1,0 +1,31 @@
+import { Link, useLocation } from 'react-router-dom';
+import './Sidebar.css';
+
+export function Sidebar() {
+  const location = useLocation();
+
+  const menuItems = [
+    { path: '/', label: 'ダッシュボード', icon: '📊' },
+    { path: '/token-reflection', label: 'トークン振り返り', icon: '💭' },
+  ];
+
+  return (
+    <div className="sidebar">
+      <div className="sidebar-header">
+        <h2>Claude Analytics</h2>
+      </div>
+      <nav className="sidebar-nav">
+        {menuItems.map((item) => (
+          <Link
+            key={item.path}
+            to={item.path}
+            className={`sidebar-nav-item ${location.pathname === item.path ? 'active' : ''}`}
+          >
+            <span className="sidebar-nav-icon">{item.icon}</span>
+            <span className="sidebar-nav-label">{item.label}</span>
+          </Link>
+        ))}
+      </nav>
+    </div>
+  );
+}

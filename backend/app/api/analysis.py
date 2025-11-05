@@ -1,6 +1,11 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
 from datetime import datetime, timedelta
-from app.models.schemas import PerformanceAnalysis, BestPracticesCheck, PromptImprovement
+from app.models.schemas import (
+    PerformanceAnalysis,
+    BestPracticesCheck,
+    PromptImprovement,
+    TokenReflection
+)
 from app.services.data_collector import ClaudeDataCollector
 from app.services.analyzer import ClaudeAnalyzer
 from app.config import get_settings, Settings
@@ -24,7 +29,8 @@ async def analyze_performance(
     analyzer: ClaudeAnalyzer = Depends(get_analyzer)
 ):
     """パフォーマンスを分析してフィードバックを提供"""
-    end_date = datetime.now()
+    from datetime import timezone
+    end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=days)
 
     # 期間内のセッションを取得
@@ -59,7 +65,8 @@ async def check_best_practices(
     analyzer: ClaudeAnalyzer = Depends(get_analyzer)
 ):
     """ベストプラクティスに沿っているかチェック"""
-    end_date = datetime.now()
+    from datetime import timezone
+    end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=days)
 
     # 期間内のセッションを取得
@@ -171,3 +178,61 @@ async def get_recent_prompts(
                 break
 
     return {"prompts": user_prompts}
+
+
+@router.get("/token-reflection", response_model=TokenReflection)
+async def analyze_token_consumption(
+    days: int = Query(7, description="Number of days to analyze"),
+    collector: ClaudeDataCollector = Depends(get_collector),
+    analyzer: ClaudeAnalyzer = Depends(get_analyzer)
+):
+    """トークン消費量を分析して振り返りを提供"""
+    from datetime import timezone
+    end_date = datetime.now(timezone.utc)
+    start_date = end_date - timedelta(days=days)
+
+    # 期間内のセッションを取得
+    all_sessions = collector.get_all_sessions()
+
+    # 期間でフィルタ
+    filtered_sessions = []
+    for session in all_sessions:
+        timestamp = session.get("timestamp")
+        if not timestamp:
+            continue
+        try:
+            session_date = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            if start_date <= session_date <= end_date:
+                filtered_sessions.append(session)
+        except:
+            continue
+
+    # セッションがない場合はダミーデータを返す
+    if not filtered_sessions:
+        return TokenReflection(
+            period_days=days,
+            summary={
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "total_tokens": 0,
+                "cache_creation_tokens": 0,
+                "cache_read_tokens": 0,
+                "estimated_cost_usd": 0.0,
+                "avg_tokens_per_session": 0.0,
+                "avg_tokens_per_day": 0.0,
+                "input_output_ratio": 0.0
+            },
+            analysis={
+                "efficiency_score": 0.0,
+                "token_usage_pattern": "データがありません",
+                "most_token_intensive_activities": [],
+                "cost_optimization_suggestions": ["Claude Codeを使用してデータを生成してください"],
+                "next_steps": ["Claude Codeでタスクを実行してトークン使用データを蓄積しましょう"]
+            },
+            reflection=f"過去{days}日間のトークン使用データが見つかりませんでした。Claude Codeを使用してタスクを実行すると、ここに詳細な振り返りが表示されます。"
+        )
+
+    # LLMでトークン消費を分析
+    result = analyzer.analyze_token_consumption(filtered_sessions, days)
+
+    return TokenReflection(**result)
