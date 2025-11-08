@@ -30,4 +30,5 @@ dist/
 # Data
 data/
 
-.claude/settings.local.json
+.claude/
+
