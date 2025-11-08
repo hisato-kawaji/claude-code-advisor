@@ -34,7 +34,9 @@ export interface BestPracticesCheck {
 export interface PromptImprovement {
   original_prompt: string;
   improved_prompt: string;
-  explanation: string;
+  explanation?: string; // Deprecated: kept for backward compatibility
+  explanation_en?: string;
+  explanation_ja?: string;
   best_practice_references: string[];
 }
 
@@ -77,4 +79,10 @@ export interface TokenReflection {
   summary: TokenConsumptionSummary;
   analysis: TokenEfficiencyAnalysis;
   reflection: string;
+}
+
+export interface HourlyUsage {
+  hour: number;
+  input_tokens: number;
+  output_tokens: number;
 }

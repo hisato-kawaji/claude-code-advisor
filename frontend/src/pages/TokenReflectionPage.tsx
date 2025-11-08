@@ -10,6 +10,9 @@ export function TokenReflectionPage() {
   const { data: tokenReflection, isLoading, isError, error } = useQuery({
     queryKey: ['tokenReflection', days],
     queryFn: async () => (await analysisApi.getTokenReflection(days)).data,
+    // Longer staleTime for expensive LLM analysis (15 minutes)
+    staleTime: 15 * 60 * 1000,
+    gcTime: 60 * 60 * 1000, // 1 hour cache
   });
 
   const formatNumber = (num: number) => num.toLocaleString();

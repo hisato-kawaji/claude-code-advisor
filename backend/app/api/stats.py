@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from datetime import datetime, timedelta
-from app.models.schemas import UsageStats, ComparisonStats
+from typing import List
+from app.models.schemas import UsageStats, ComparisonStats, HourlyUsage
 from app.services.data_collector import ClaudeDataCollector
 from app.config import get_settings, Settings
 
@@ -8,7 +9,7 @@ router = APIRouter(prefix="/api/stats", tags=["statistics"])
 
 
 def get_collector(settings: Settings = Depends(get_settings)) -> ClaudeDataCollector:
-    return ClaudeDataCollector(settings.claude_data_path)
+    return ClaudeDataCollector(settings.claude_data_path, settings.database_path)
 
 
 def calculate_change_percentage(current: dict, previous: dict) -> dict:
@@ -112,6 +113,17 @@ async def get_monthly_stats(
     )
 
 
+@router.get("/hourly", response_model=List[HourlyUsage])
+async def get_hourly_stats(
+    date: str = Query(..., description="Date in YYYY-MM-DD format"),
+    collector: ClaudeDataCollector = Depends(get_collector)
+):
+    """指定日の1時間ごとの統計を取得"""
+    target_date = datetime.fromisoformat(date)
+    hourly_data = collector.get_hourly_stats(target_date)
+    return hourly_data
+
+
 @router.get("/range")
 async def get_range_stats(
     start_date: str = Query(..., description="Start date in YYYY-MM-DD format"),
@@ -133,17 +145,9 @@ async def get_daily_history(
     days: int = Query(30, description="Number of days to retrieve"),
     collector: ClaudeDataCollector = Depends(get_collector)
 ):
-    """過去N日分の日次統計を取得"""
-    history = []
-    current_date = datetime.now()
-
-    for i in range(days):
-        date = current_date - timedelta(days=i)
-        stats = collector.get_daily_stats(date)
-        stats["date"] = date.strftime("%Y-%m-%d")
-        history.append(stats)
-
-    return {"history": list(reversed(history))}
+    """過去N日分の日次統計を取得（最適化版）"""
+    history = collector.get_daily_history_optimized(days)
+    return {"history": history}
 
 
 @router.get("/history/weekly")
@@ -151,18 +155,9 @@ async def get_weekly_history(
     weeks: int = Query(26, description="Number of weeks to retrieve (default: 26 weeks = ~6 months)"),
     collector: ClaudeDataCollector = Depends(get_collector)
 ):
-    """過去N週分の週次統計を取得"""
-    history = []
-    current_date = datetime.now()
-
-    for i in range(weeks):
-        date = current_date - timedelta(weeks=i)
-        stats = collector.get_weekly_stats(date)
-        week_start = date - timedelta(days=date.weekday())
-        stats["date"] = week_start.strftime("%Y-%m-%d")
-        history.append(stats)
-
-    return {"history": list(reversed(history))}
+    """過去N週分の週次統計を取得（最適化版）"""
+    history = collector.get_weekly_history_optimized(weeks)
+    return {"history": history}
 
 
 @router.get("/history/monthly")
@@ -170,22 +165,19 @@ async def get_monthly_history(
     months: int = Query(12, description="Number of months to retrieve"),
     collector: ClaudeDataCollector = Depends(get_collector)
 ):
-    """過去N月分の月次統計を取得"""
-    history = []
-    current_date = datetime.now()
+    """過去N月分の月次統計を取得（最適化版）"""
+    history = collector.get_monthly_history_optimized(months)
+    return {"history": history}
 
-    for i in range(months):
-        # 月を遡る
-        year = current_date.year
-        month = current_date.month - i
-
-        while month <= 0:
-            month += 12
-            year -= 1
-
-        date = current_date.replace(year=year, month=month, day=1)
-        stats = collector.get_monthly_stats(date)
-        stats["date"] = date.strftime("%Y-%m-%d")
-        history.append(stats)
-
-    return {"history": list(reversed(history))}
+@router.post("/sync")
+async def sync_database(
+    collector: ClaudeDataCollector = Depends(get_collector)
+):
+    """データベースを最新のJSONLファイルと同期"""
+    result = collector.sync_to_database()
+    return {
+        "status": "success",
+        "inserted": result["inserted"],
+        "skipped": result["skipped"],
+        "total_entries": result["total_entries"]
+    }

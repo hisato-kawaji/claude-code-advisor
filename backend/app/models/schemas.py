@@ -76,3 +76,13 @@ class TokenReflection(BaseModel):
     summary: TokenConsumptionSummary
     analysis: TokenEfficiencyAnalysis
     reflection: str
+
+
+class HourlyUsage(BaseModel):
+    hour: int
+    input_tokens: int
+    output_tokens: int
+
+
+class HourlyUsageResponse(BaseModel):
+    data: list[HourlyUsage]

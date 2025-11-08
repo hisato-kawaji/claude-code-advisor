@@ -1,7 +1,7 @@
 import axios from 'axios';
-import type { ComparisonStats, PerformanceAnalysis, BestPracticesCheck, PromptImprovement, RecentPrompt, TokenReflection } from './types';
+import type { ComparisonStats, PerformanceAnalysis, BestPracticesCheck, PromptImprovement, RecentPrompt, TokenReflection, HourlyUsage } from './types';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -17,6 +17,9 @@ export const statsApi = {
   getMonthly: (date?: string) =>
     api.get<ComparisonStats>('/api/stats/monthly', { params: { date } }),
 
+  getHourly: (date: string) =>
+    api.get<HourlyUsage[]>('/api/stats/hourly', { params: { date } }),
+
   getDailyHistory: (days: number = 30) =>
     api.get<{ history: any[] }>('/api/stats/history/daily', { params: { days } }),
 
@@ -25,6 +28,9 @@ export const statsApi = {
 
   getMonthlyHistory: (months: number = 12) =>
     api.get<{ history: any[] }>('/api/stats/history/monthly', { params: { months } }),
+
+  syncDatabase: () =>
+    api.post<{ status: string; inserted: number; skipped: number; total_entries: number }>('/api/stats/sync'),
 };
 
 export const analysisApi = {

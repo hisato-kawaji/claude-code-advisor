@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
 
 def get_collector(settings: Settings = Depends(get_settings)) -> ClaudeDataCollector:
-    return ClaudeDataCollector(settings.claude_data_path)
+    return ClaudeDataCollector(settings.claude_data_path, settings.database_path)
 
 
 def get_analyzer(settings: Settings = Depends(get_settings)) -> ClaudeAnalyzer:
@@ -28,32 +28,15 @@ async def analyze_performance(
     collector: ClaudeDataCollector = Depends(get_collector),
     analyzer: ClaudeAnalyzer = Depends(get_analyzer)
 ):
-    """パフォーマンスを分析してフィードバックを提供"""
-    from datetime import timezone
-    end_date = datetime.now(timezone.utc)
-    start_date = end_date - timedelta(days=days)
+    """パフォーマンスを分析してフィードバックを提供（DB最適化版）"""
+    # DB最適化版：統計データとサンプルメッセージのみ取得
+    data = collector.get_analysis_data_optimized(days)
 
-    # 期間内のセッションを取得
-    all_sessions = collector.get_all_sessions()
-
-    # 期間でフィルタ
-    filtered_sessions = []
-    for session in all_sessions:
-        timestamp = session.get("timestamp")
-        if not timestamp:
-            continue
-        try:
-            session_date = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-            if start_date <= session_date <= end_date:
-                filtered_sessions.append(session)
-        except:
-            continue
-
-    if not filtered_sessions:
+    if data["stats"]["total_messages"] == 0:
         raise HTTPException(status_code=404, detail="No sessions found in the specified period")
 
     # LLMで分析
-    analysis = analyzer.analyze_performance(filtered_sessions)
+    analysis = analyzer.analyze_performance(data["stats"], data["sample_messages"])
 
     return PerformanceAnalysis(**analysis)
 
@@ -64,32 +47,15 @@ async def check_best_practices(
     collector: ClaudeDataCollector = Depends(get_collector),
     analyzer: ClaudeAnalyzer = Depends(get_analyzer)
 ):
-    """ベストプラクティスに沿っているかチェック"""
-    from datetime import timezone
-    end_date = datetime.now(timezone.utc)
-    start_date = end_date - timedelta(days=days)
+    """ベストプラクティスに沿っているかチェック（DB最適化版）"""
+    # DB最適化版：サンプルメッセージのみ取得
+    data = collector.get_analysis_data_optimized(days)
 
-    # 期間内のセッションを取得
-    all_sessions = collector.get_all_sessions()
-
-    # 期間でフィルタ
-    filtered_sessions = []
-    for session in all_sessions:
-        timestamp = session.get("timestamp")
-        if not timestamp:
-            continue
-        try:
-            session_date = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-            if start_date <= session_date <= end_date:
-                filtered_sessions.append(session)
-        except:
-            continue
-
-    if not filtered_sessions:
+    if data["stats"]["total_messages"] == 0:
         raise HTTPException(status_code=404, detail="No sessions found in the specified period")
 
     # LLMでチェック
-    result = analyzer.check_best_practices(filtered_sessions)
+    result = analyzer.check_best_practices(data["sample_messages"])
 
     return BestPracticesCheck(**result)
 
@@ -186,29 +152,12 @@ async def analyze_token_consumption(
     collector: ClaudeDataCollector = Depends(get_collector),
     analyzer: ClaudeAnalyzer = Depends(get_analyzer)
 ):
-    """トークン消費量を分析して振り返りを提供"""
-    from datetime import timezone
-    end_date = datetime.now(timezone.utc)
-    start_date = end_date - timedelta(days=days)
-
-    # 期間内のセッションを取得
-    all_sessions = collector.get_all_sessions()
-
-    # 期間でフィルタ
-    filtered_sessions = []
-    for session in all_sessions:
-        timestamp = session.get("timestamp")
-        if not timestamp:
-            continue
-        try:
-            session_date = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-            if start_date <= session_date <= end_date:
-                filtered_sessions.append(session)
-        except:
-            continue
+    """トークン消費量を分析して振り返りを提供（DB最適化版）"""
+    # DB最適化版：統計データとサンプルメッセージのみ取得
+    data = collector.get_analysis_data_optimized(days)
 
     # セッションがない場合はダミーデータを返す
-    if not filtered_sessions:
+    if data["stats"]["total_messages"] == 0:
         return TokenReflection(
             period_days=days,
             summary={
@@ -233,6 +182,6 @@ async def analyze_token_consumption(
         )
 
     # LLMでトークン消費を分析
-    result = analyzer.analyze_token_consumption(filtered_sessions, days)
+    result = analyzer.analyze_token_consumption(data["stats"], data["sample_messages"], days)
 
     return TokenReflection(**result)

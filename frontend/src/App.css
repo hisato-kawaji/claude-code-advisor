@@ -207,6 +207,7 @@ p {
 
 .score-card p {
   margin: 0.5rem 0;
+  color: #000;
 }
 
 .feedback {
@@ -217,11 +218,23 @@ p {
   border-left: 4px solid #646cff;
 }
 
+.feedback h4 {
+  color: #000;
+}
+
+.feedback p {
+  color: #000;
+}
+
 .lists {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 2rem;
   margin: 1.5rem 0;
+}
+
+.lists h4 {
+  color: #000;
 }
 
 .lists ul {
@@ -232,6 +245,7 @@ p {
 .lists li {
   padding: 0.5rem 0;
   border-bottom: 1px solid #eee;
+  color: #000 !important;
 }
 
 .lists li.passed::before {
@@ -254,8 +268,17 @@ p {
   border-left: 4px solid #ffc107;
 }
 
+.recommendations h4 {
+  color: #000;
+}
+
 .recommendations ul {
   margin: 0.5rem 0;
+  color: #000;
+}
+
+.recommendations li {
+  color: #000 !important;
 }
 
 .prompt-improvement {
