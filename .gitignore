@@ -32,3 +32,10 @@ data/
 
 .claude/
 
+# Local work files
+.serena/
+capture-demo.js
+concat.txt
+demo.gif
+screenshots/
+
