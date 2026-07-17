@@ -113,45 +113,50 @@ export function DashboardPage() {
 
   return (
     <div className="dashboard">
-      <h1>Claude Code Analytics</h1>
-
-      {/* Period Selector and Sync Button */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <div className="period-selector">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
+        <div style={{ flex: 1 }}></div>
+        <h1 style={{ flex: 1, margin: '0 0 24px 0' }}>Claude Code Analytics</h1>
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
           <button
-            className={period === 'daily' ? 'active' : ''}
-            onClick={() => setPeriod('daily')}
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+            style={{
+              padding: '12px 24px',
+              backgroundColor: syncMutation.isPending ? '#ccc' : '#10b981',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: syncMutation.isPending ? 'not-allowed' : 'pointer',
+              fontSize: '14px',
+              fontWeight: '600',
+              boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+              transition: 'all 0.2s ease',
+            }}
           >
-            Daily
-          </button>
-          <button
-            className={period === 'weekly' ? 'active' : ''}
-            onClick={() => setPeriod('weekly')}
-          >
-            Weekly
-          </button>
-          <button
-            className={period === 'monthly' ? 'active' : ''}
-            onClick={() => setPeriod('monthly')}
-          >
-            Monthly
+            {syncMutation.isPending ? '同期中...' : 'データを同期'}
           </button>
         </div>
+      </div>
+
+      {/* Period Selector */}
+      <div className="period-selector">
         <button
-          onClick={() => syncMutation.mutate()}
-          disabled={syncMutation.isPending}
-          style={{
-            padding: '8px 16px',
-            backgroundColor: syncMutation.isPending ? '#ccc' : '#4CAF50',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: syncMutation.isPending ? 'not-allowed' : 'pointer',
-            fontSize: '14px',
-            fontWeight: 'bold',
-          }}
+          className={period === 'daily' ? 'active' : ''}
+          onClick={() => setPeriod('daily')}
         >
-          {syncMutation.isPending ? '同期中...' : 'データを同期'}
+          Daily
+        </button>
+        <button
+          className={period === 'weekly' ? 'active' : ''}
+          onClick={() => setPeriod('weekly')}
+        >
+          Weekly
+        </button>
+        <button
+          className={period === 'monthly' ? 'active' : ''}
+          onClick={() => setPeriod('monthly')}
+        >
+          Monthly
         </button>
       </div>
 

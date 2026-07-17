@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { statsApi } from '../api';
 import {
@@ -47,24 +47,31 @@ export function MonitoringPage() {
 
   return (
     <div className="monitoring-page">
-      <div className="page-header">
-        <h1>🕒 1時間ごとのトークン消費量</h1>
-        <div className="date-picker-container">
-          <label htmlFor="date-select">日付を選択:</label>
-          <input
-            type="date"
-            id="date-select"
-            value={selectedDate}
-            max={getYesterday()} // Don't allow selecting today or future dates
-            onChange={(e) => setSelectedDate(e.target.value)}
-          />
-        </div>
+      <h1>トークン消費モニタリング</h1>
+
+      <div className="date-picker-container">
+        <label htmlFor="date-select">日付を選択:</label>
+        <input
+          type="date"
+          id="date-select"
+          value={selectedDate}
+          max={getYesterday()} // Don't allow selecting today or future dates
+          onChange={(e) => setSelectedDate(e.target.value)}
+        />
       </div>
 
-      <div className="chart-container">
-        {isLoading && <p>グラフを読み込み中...</p>}
-        {isError && <p className="error-message">エラーが発生しました: {error.message}</p>}
-        {hourlyData && (
+      {isLoading ? (
+        <div className="loading-container">
+          <div className="spinner"></div>
+          <p className="loading-text">グラフを読み込み中...</p>
+        </div>
+      ) : isError ? (
+        <div className="error-message">
+          <p>エラーが発生しました: {error.message}</p>
+        </div>
+      ) : hourlyData ? (
+        <div className="chart-container">
+          <h2>1時間ごとのトークン消費量</h2>
           <ResponsiveContainer width="100%" height={400}>
             <BarChart
               data={hourlyData}
@@ -84,8 +91,8 @@ export function MonitoringPage() {
               <Bar dataKey="output_tokens" name="Output Tokens" fill="#82ca9d" />
             </BarChart>
           </ResponsiveContainer>
-        )}
-      </div>
+        </div>
+      ) : null}
 
       {tableData && tableData.length > 0 && (
         <div className="table-container">
