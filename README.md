@@ -23,6 +23,14 @@ Claude Codeの使用状況を分析し、使い方を改善するためのダッ
 - **期間選択**: 過去7日間、14日間、30日間の分析
 - **チャート表示**: Input/Outputトークンの構成比を円グラフで表示
 
+### 🔍 プロンプト別トークン分析
+- **1対1のトークン帰属**: 各プロンプトに、次のプロンプトまでのアシスタント消費（ツール実行・サブエージェント・バックグラウンド作業含む）を帰属
+- **網羅テーブル**: 全プロンプトをソート・ページング・行展開付きで表示（トークン内訳／コスト／ツール実行回数／所要時間）
+- **消費上位チャートと分布ヒストグラム**: どのプロンプトが重いかが一目で分かる
+- **帰属率の表示**: 帰属できた消費の割合を表示し、データの正確性を検証可能
+- **AI分析**: 高消費プロンプトのパターン特定・改善提案・実プロンプトの書き換え例
+  - アドバイスは公式ドキュメント比重で整理した最新ベストプラクティス（[観点整理](docs/claude-prompting-best-practices.md)）に基づき、観点ラベル付きで提示
+
 ### 🕒 時間別モニタリング
 - 日付を選択し、1日のトークン消費量を1時間ごとに可視化
 - Input/Outputトークンの内訳を棒グラフで表示
@@ -73,6 +81,7 @@ docker-compose up -d
   - メインダッシュボード: http://localhost:5173/
   - トークン消費振り返り: http://localhost:5173/token-reflection
   - 時間別モニタリング: http://localhost:5173/monitoring
+  - プロンプト分析: http://localhost:5173/prompt-analysis
 - **API ドキュメント**: http://localhost:8000/docs
 
 ### 5. 停止
@@ -147,6 +156,16 @@ npm run dev
   - ベストプラクティス参照
 
 - `GET /api/analysis/recent-prompts?limit=10` - 最近のプロンプト一覧
+
+- `GET /api/analysis/prompt-tokens?days=7&sort=total_tokens&order=desc&limit=50&offset=0&include_commands=true` - プロンプト別トークン帰属データ（LLM不使用・高速）
+  - 各プロンプトへの1対1トークン帰属（Input/Output/Cache別、コスト、ツール実行回数、所要時間）
+  - サマリー統計（平均・中央値・p90・最大、分布ヒストグラム、上位消費プロンプト）
+  - 帰属率（attribution_coverage_pct）による正確性の検証
+
+- `GET /api/analysis/prompt-tokens/insights?days=7&top=15` - プロンプト消費パターンのAI分析
+  - 高消費プロンプトのパターン特定
+  - 効率に関する観察と改善提案
+  - 実際のプロンプトの書き換え例
 
 - `GET /api/analysis/token-reflection?days=7` - トークン消費振り返り
   - トークン消費統計（Input/Output/Cache）

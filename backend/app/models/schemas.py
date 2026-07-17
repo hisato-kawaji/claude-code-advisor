@@ -78,6 +78,64 @@ class TokenReflection(BaseModel):
     reflection: str
 
 
+class PromptTurn(BaseModel):
+    session_id: str
+    project: Optional[str] = None
+    timestamp: str
+    prompt: str
+    prompt_length: int
+    is_command: bool
+    input_tokens: int
+    output_tokens: int
+    cache_creation_tokens: int
+    cache_read_tokens: int
+    total_tokens: int
+    estimated_cost_usd: float
+    assistant_messages: int
+    tool_use_count: int
+    duration_seconds: float
+
+
+class TokenHistogramBucket(BaseModel):
+    label: str
+    count: int
+
+
+class PromptTokenSummary(BaseModel):
+    total_prompts: int
+    command_prompts: int
+    total_tokens: int
+    total_cost_usd: float
+    avg_tokens_per_prompt: float
+    median_tokens_per_prompt: float
+    p90_tokens_per_prompt: float
+    max_tokens_per_prompt: int
+    attributed_tokens: int
+    unattributed_tokens: int
+    attribution_coverage_pct: float
+    histogram: list[TokenHistogramBucket]
+    top_prompts: list[PromptTurn]
+
+
+class PromptTokenAnalysis(BaseModel):
+    period_days: int
+    summary: PromptTokenSummary
+    total_count: int
+    offset: int
+    limit: int
+    turns: list[PromptTurn]
+
+
+class PromptTokenInsights(BaseModel):
+    period_days: int
+    analyzed_prompts: int
+    high_cost_patterns: list[str]
+    efficiency_observations: list[str]
+    improvement_suggestions: list[str]
+    example_rewrites: list[PromptImprovementExample]
+    reflection: str
+
+
 class HourlyUsage(BaseModel):
     hour: int
     input_tokens: int

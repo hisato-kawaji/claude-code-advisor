@@ -1,7 +1,7 @@
 import axios from 'axios';
-import type { ComparisonStats, PerformanceAnalysis, BestPracticesCheck, PromptImprovement, RecentPrompt, TokenReflection, HourlyUsage } from './types';
+import type { ComparisonStats, PerformanceAnalysis, BestPracticesCheck, PromptImprovement, RecentPrompt, TokenReflection, HourlyUsage, PromptTokenAnalysis, PromptTokenInsights } from './types';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -48,4 +48,17 @@ export const analysisApi = {
 
   getTokenReflection: (days: number = 7) =>
     api.get<TokenReflection>('/api/analysis/token-reflection', { params: { days } }),
+
+  getPromptTokens: (params: {
+    days: number;
+    sort?: string;
+    order?: 'asc' | 'desc';
+    limit?: number;
+    offset?: number;
+    include_commands?: boolean;
+  }) =>
+    api.get<PromptTokenAnalysis>('/api/analysis/prompt-tokens', { params }),
+
+  getPromptTokenInsights: (days: number = 7) =>
+    api.get<PromptTokenInsights>('/api/analysis/prompt-tokens/insights', { params: { days } }),
 };

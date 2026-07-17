@@ -4,6 +4,7 @@ import { Sidebar } from './components/Sidebar';
 import { DashboardPage } from './pages/DashboardPage';
 import { MonitoringPage } from './pages/MonitoringPage';
 import { TokenReflectionPage } from './pages/TokenReflectionPage';
+import { PromptAnalysisPage } from './pages/PromptAnalysisPage';
 import './App.css';
 
 const queryClient = new QueryClient({
@@ -32,6 +33,7 @@ function App() {
               <Route path="/" element={<DashboardPage />} />
               <Route path="/monitoring" element={<MonitoringPage />} />
               <Route path="/token-reflection" element={<TokenReflectionPage />} />
+              <Route path="/prompt-analysis" element={<PromptAnalysisPage />} />
             </Routes>
           </div>
         </div>

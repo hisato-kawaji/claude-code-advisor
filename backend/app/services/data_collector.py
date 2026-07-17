@@ -521,6 +521,27 @@ class ClaudeDataCollector:
             "total_entries": self.db.get_total_entries_count()
         }
 
+    def get_prompt_turns(self, days: int = 7) -> Dict:
+        """プロンプト単位のトークン帰属分析データを取得（DB使用）
+
+        各プロンプト（ターン起点）に、次のプロンプトまでのassistant消費を
+        合算して帰属させる。帰属できなかった消費はサマリーのunattributedに
+        計上され、attribution_coverage_pctで正確性を検証できる。
+        """
+        from datetime import date as date_cls
+        from .prompt_turns import build_turns, summarize_turns
+
+        end_date = date_cls.today()
+        start_date = end_date - timedelta(days=days)
+
+        rows = self.db.get_entries_for_prompt_analysis(
+            start_date.isoformat(), end_date.isoformat()
+        )
+        turns, unattributed = build_turns(rows)
+        summary = summarize_turns(turns, unattributed)
+
+        return {"turns": turns, "summary": summary}
+
     def get_analysis_data_optimized(self, days: int = 7) -> Dict:
         """analyzer用の統計データを高速取得（DB使用）"""
         if self._use_db:

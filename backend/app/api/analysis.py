@@ -4,7 +4,9 @@ from app.models.schemas import (
     PerformanceAnalysis,
     BestPracticesCheck,
     PromptImprovement,
-    TokenReflection
+    TokenReflection,
+    PromptTokenAnalysis,
+    PromptTokenInsights
 )
 from app.services.data_collector import ClaudeDataCollector
 from app.services.analyzer import ClaudeAnalyzer
@@ -144,6 +146,78 @@ async def get_recent_prompts(
                 break
 
     return {"prompts": user_prompts}
+
+
+PROMPT_TOKEN_SORT_KEYS = {
+    "total_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "estimated_cost_usd",
+    "timestamp",
+    "tool_use_count",
+    "assistant_messages",
+    "duration_seconds",
+}
+
+
+@router.get("/prompt-tokens", response_model=PromptTokenAnalysis)
+async def get_prompt_token_analysis(
+    days: int = Query(7, description="Number of days to analyze"),
+    sort: str = Query("total_tokens", description="Sort key"),
+    order: str = Query("desc", description="Sort order: asc or desc"),
+    limit: int = Query(50, ge=1, le=200, description="Page size"),
+    offset: int = Query(0, ge=0, description="Page offset"),
+    include_commands: bool = Query(True, description="Include slash-command turns"),
+    collector: ClaudeDataCollector = Depends(get_collector)
+):
+    """プロンプト単位のトークン帰属データを網羅的に取得（LLM不使用・高速）
+
+    各プロンプトに、次のプロンプトまでのassistant消費（サブエージェント・
+    ツール実行含む）を1対1で帰属させたターン一覧を返す。
+    summary.attribution_coverage_pctで帰属の正確性を検証できる。
+    """
+    if sort not in PROMPT_TOKEN_SORT_KEYS:
+        raise HTTPException(status_code=400, detail=f"Invalid sort key: {sort}")
+
+    data = collector.get_prompt_turns(days)
+    turns = data["turns"]
+
+    if not include_commands:
+        turns = [t for t in turns if not t["is_command"]]
+
+    turns = sorted(turns, key=lambda t: t[sort], reverse=(order != "asc"))
+    total_count = len(turns)
+    page = turns[offset:offset + limit]
+
+    return PromptTokenAnalysis(
+        period_days=days,
+        summary=data["summary"],
+        total_count=total_count,
+        offset=offset,
+        limit=limit,
+        turns=page,
+    )
+
+
+@router.get("/prompt-tokens/insights", response_model=PromptTokenInsights)
+async def get_prompt_token_insights(
+    days: int = Query(7, description="Number of days to analyze"),
+    top: int = Query(15, ge=3, le=30, description="Number of top prompts to analyze"),
+    collector: ClaudeDataCollector = Depends(get_collector),
+    analyzer: ClaudeAnalyzer = Depends(get_analyzer)
+):
+    """消費上位プロンプトをLLMで分析し、高消費パターンと改善示唆を返す"""
+    data = collector.get_prompt_turns(days)
+    turns = data["turns"]
+
+    if not turns:
+        raise HTTPException(status_code=404, detail="No prompts found in the specified period")
+
+    top_turns = sorted(turns, key=lambda t: t["total_tokens"], reverse=True)[:top]
+
+    result = analyzer.analyze_prompt_token_patterns(data["summary"], top_turns, days)
+
+    return PromptTokenInsights(**result)
 
 
 @router.get("/token-reflection", response_model=TokenReflection)

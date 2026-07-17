@@ -81,6 +81,64 @@ export interface TokenReflection {
   reflection: string;
 }
 
+export interface PromptTurn {
+  session_id: string;
+  project: string | null;
+  timestamp: string;
+  prompt: string;
+  prompt_length: number;
+  is_command: boolean;
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_tokens: number;
+  cache_read_tokens: number;
+  total_tokens: number;
+  estimated_cost_usd: number;
+  assistant_messages: number;
+  tool_use_count: number;
+  duration_seconds: number;
+}
+
+export interface TokenHistogramBucket {
+  label: string;
+  count: number;
+}
+
+export interface PromptTokenSummary {
+  total_prompts: number;
+  command_prompts: number;
+  total_tokens: number;
+  total_cost_usd: number;
+  avg_tokens_per_prompt: number;
+  median_tokens_per_prompt: number;
+  p90_tokens_per_prompt: number;
+  max_tokens_per_prompt: number;
+  attributed_tokens: number;
+  unattributed_tokens: number;
+  attribution_coverage_pct: number;
+  histogram: TokenHistogramBucket[];
+  top_prompts: PromptTurn[];
+}
+
+export interface PromptTokenAnalysis {
+  period_days: number;
+  summary: PromptTokenSummary;
+  total_count: number;
+  offset: number;
+  limit: number;
+  turns: PromptTurn[];
+}
+
+export interface PromptTokenInsights {
+  period_days: number;
+  analyzed_prompts: number;
+  high_cost_patterns: string[];
+  efficiency_observations: string[];
+  improvement_suggestions: string[];
+  example_rewrites: PromptImprovementExample[];
+  reflection: string;
+}
+
 export interface HourlyUsage {
   hour: number;
   input_tokens: number;

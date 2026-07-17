@@ -217,6 +217,23 @@ class DatabaseManager:
 
             return [json.loads(row["message_json"]) for row in cursor.fetchall()]
 
+    def get_entries_for_prompt_analysis(self, start_date: str, end_date: str) -> List[Dict]:
+        """プロンプト単位のターン分析用に、期間内のuser/assistantエントリを
+        セッション・時系列順で取得する"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT session_id, timestamp, entry_type, message_json,
+                       input_tokens, output_tokens,
+                       cache_creation_tokens, cache_read_tokens
+                FROM session_entries
+                WHERE date >= ? AND date <= ?
+                  AND entry_type IN ('user', 'assistant')
+                ORDER BY session_id, timestamp
+            """, (start_date, end_date))
+
+            return [dict(row) for row in cursor.fetchall()]
+
     def get_daily_stats(self, date: str) -> Dict:
         """日次統計を高速取得"""
         with self.get_connection() as conn:
