@@ -2,63 +2,15 @@ from openai import OpenAI
 from typing import List, Dict
 import json
 
+from .prompting_knowledge import (
+    CLAUDE_PROMPTING_KNOWLEDGE,
+    DATA_SIGNAL_MAPPING,
+    ADVICE_PERSPECTIVES,
+)
 
-BEST_PRACTICES = """
-# Claude Code Best Practices (https://www.anthropic.com/engineering/claude-code-best-practices)
-
-1. Customize Your Setup
-- Create CLAUDE.md files documenting bash commands, code style guidelines, testing instructions, repository etiquette, and developer environment setup
-- Place in repo root, parent directories, child directories, or home folder (~/.claude/CLAUDE.md)
-- Keep concise and human-readable; treat like a frequently-used prompt requiring iteration
-- Manage tool allowlist with /permissions command or settings.json
-- Install gh CLI for GitHub integration
-
-2. Enhance Claude's Capabilities
-- Document custom bash tools with usage examples
-- Direct Claude to run --help for documentation
-- Configure Model Context Protocol (MCP) for extended functionality
-- Create custom slash commands in .claude/commands folder with $ARGUMENTS keyword
-
-3. Effective Workflows
-
-a. Explore, Plan, Code, Commit
-- Ask Claude to read relevant files without writing code yet
-- Request a detailed plan (use "think" to trigger extended thinking)
-- Have Claude implement the solution
-- Ask to commit and create pull requests
-
-b. Test-Driven Development
-- Write tests based on expected inputs/outputs
-- Confirm tests fail
-- Commit the tests
-- Have Claude implement code to pass tests
-- Commit the passing code
-
-c. Visual Iteration
-- Provide browser screenshots (via Puppeteer MCP or manual copy/paste)
-- Share visual design mocks
-- Have Claude implement designs and iterate until matches
-
-4. Workflow Optimization
-- Be Specific: Provide clear, detailed instructions upfront to reduce course corrections
-- Use Images: Paste screenshots (macOS: cmd+ctrl+shift+4, then ctrl+v), drag and drop, or provide file paths
-- Reference Files: Use tab-completion to quickly reference files or folders
-- Provide URLs: Paste specific URLs and add domains to allowlist with /permissions
-- Course Correct Early: Ask for a plan before coding, press Escape to interrupt, double-tap Escape to explore alternatives
-- Use /clear Command: Reset context window between tasks to maintain performance
-- Checklists and Scratchpads: Use Markdown files or GitHub issues for large, multi-step tasks
-- Data Input: Copy/paste, pipe data (cat foo.txt | claude), have Claude pull via bash/MCP, or ask Claude to read files/URLs
-
-5. Multi-Claude Workflows
-- Run parallel verification: one Claude writes code, another reviews
-- Create multiple git checkouts or use git worktrees for parallel tasks
-- Use headless mode (-p flag) for automation in CI, pre-commit hooks, and build scripts
-
-6. Safety First
-- Conservative permission defaults protect your system
-- Only use --dangerously-skip-permissions in isolated containers
-- Always review Claude's work
-"""
+# 全LLM分析が参照するベストプラクティス。公式ドキュメント比重で整理した
+# 最新ナレッジ（prompting_knowledge.py / docs/claude-prompting-best-practices.md）
+BEST_PRACTICES = CLAUDE_PROMPTING_KNOWLEDGE
 
 
 class ClaudeAnalyzer:
@@ -233,6 +185,138 @@ Return JSON with:
                 "explanation_en": "Unable to generate improvements. Please check API access.",
                 "explanation_ja": "改善案を生成できませんでした。APIアクセスを確認してください。",
                 "best_practice_references": []
+            }
+
+    def analyze_prompt_token_patterns(self, summary: Dict, top_turns: List[Dict], period_days: int) -> Dict:
+        """プロンプト単位のトークン帰属データから、高消費パターンと改善示唆を分析"""
+        # LLMに渡す上位消費ターンの要約（プロンプトは300文字に切り詰め）
+        turns_payload = [
+            {
+                "prompt": t["prompt"][:300],
+                "project": t.get("project"),
+                "is_command": t["is_command"],
+                "total_tokens": t["total_tokens"],
+                "output_tokens": t["output_tokens"],
+                "cache_read_tokens": t["cache_read_tokens"],
+                "estimated_cost_usd": t["estimated_cost_usd"],
+                "assistant_messages": t["assistant_messages"],
+                "tool_use_count": t["tool_use_count"],
+                "duration_seconds": t["duration_seconds"],
+            }
+            for t in top_turns
+        ]
+
+        perspectives = " / ".join(ADVICE_PERSPECTIVES)
+
+        analysis_prompt = f"""
+You are an expert in Claude Code usage. Your advice must be grounded in the
+official Anthropic best practices reference below (official guidance takes
+priority over community lore).
+Below is per-prompt token attribution data: each user prompt is paired 1:1 with
+ALL tokens consumed by the assistant turn it triggered (until the next user prompt).
+
+Period statistics ({period_days} days):
+- Total prompts: {summary['total_prompts']} (slash commands: {summary['command_prompts']})
+- Total attributed tokens (input+output): {summary['total_tokens']:,}
+- Total estimated cost: ${summary['total_cost_usd']:.2f} USD
+- Tokens per prompt: avg={summary['avg_tokens_per_prompt']:,.0f}, median={summary['median_tokens_per_prompt']:,.0f}, p90={summary['p90_tokens_per_prompt']:,.0f}, max={summary['max_tokens_per_prompt']:,}
+- Distribution: {json.dumps([(b['label'], b['count']) for b in summary['histogram']], ensure_ascii=False)}
+
+Top token-consuming prompts (actual user prompts with their attributed consumption):
+{json.dumps(turns_payload, indent=2, ensure_ascii=False)}
+
+<best_practices_reference>
+{BEST_PRACTICES}
+</best_practices_reference>
+
+<signal_mapping>
+{DATA_SIGNAL_MAPPING}
+</signal_mapping>
+
+Advice perspectives (use these as category labels): {perspectives}
+
+Analysis tasks:
+- Ground EVERY finding in the actual prompts above (quote or paraphrase them).
+- Use the signal mapping to connect what you see in the data (tool_use_count,
+  cache_read, duration, assistant_messages) to the right perspective.
+- Prefix EVERY item in tasks 1-3 with its perspective label in square brackets,
+  e.g. "[Specificity] ..." — same label on both the English and Japanese lines.
+- When a suggestion comes from official guidance, say so naturally (e.g. "the
+  official docs recommend /clear between unrelated tasks").
+
+1. high_cost_patterns: 3-5 patterns describing WHAT KINDS of prompts consumed the most
+   tokens (e.g. vague continuation prompts like "続きをやって" forcing broad re-exploration,
+   unscoped "read everything" requests, etc.). Each in "[Perspective] English\\n[Perspective] 日本語"
+   format (English first line, Japanese second line).
+2. efficiency_observations: 2-4 observations contrasting efficient vs inefficient prompts
+   in this data (e.g. relation between prompt specificity and tool_use_count / tokens).
+   Each in "[Perspective] English\\n[Perspective] 日本語" format.
+3. improvement_suggestions: 3-5 actionable suggestions to reduce consumption, each tied to
+   a specific OFFICIAL best practice AND to a pattern actually observed in this data.
+   Cover different perspectives rather than repeating one. Each in
+   "[Perspective] English\\n[Perspective] 日本語" format.
+4. example_rewrites: pick up to 2 of the ACTUAL expensive prompts above and rewrite them
+   applying the best practices (add scope/files, verification criteria, delegation hints
+   as appropriate). Array of objects with keys: original (the actual prompt), improved
+   (rewritten version in the same language as the original), explanation_en, explanation_ja
+   (explanations must name the applied best practices).
+5. reflection: a comprehensive 2-3 paragraph reflection in Japanese on how this user's
+   prompting style drives token consumption and how to improve it, referencing the
+   perspectives that matter most for this user.
+
+Return JSON with keys:
+- high_cost_patterns (array of strings)
+- efficiency_observations (array of strings)
+- improvement_suggestions (array of strings)
+- example_rewrites (array of objects)
+- reflection (string in Japanese)
+"""
+
+        response = self.client.chat.completions.create(
+            model=self.model,
+            max_tokens=4000,
+            messages=[{"role": "user", "content": analysis_prompt}]
+        )
+
+        try:
+            content = response.choices[0].message.content
+            if "```json" in content:
+                json_str = content.split("```json")[1].split("```")[0].strip()
+            elif "```" in content:
+                json_str = content.split("```")[1].split("```")[0].strip()
+            else:
+                json_str = content.strip()
+
+            result = json.loads(json_str)
+
+            rewrites = []
+            for item in result.get("example_rewrites", []):
+                if isinstance(item, dict) and item.get("original") and item.get("improved"):
+                    rewrites.append({
+                        "original": item["original"],
+                        "improved": item["improved"],
+                        "explanation_en": item.get("explanation_en", ""),
+                        "explanation_ja": item.get("explanation_ja", ""),
+                    })
+
+            return {
+                "period_days": period_days,
+                "analyzed_prompts": len(top_turns),
+                "high_cost_patterns": result.get("high_cost_patterns", []),
+                "efficiency_observations": result.get("efficiency_observations", []),
+                "improvement_suggestions": result.get("improvement_suggestions", []),
+                "example_rewrites": rewrites,
+                "reflection": result.get("reflection", ""),
+            }
+        except Exception as e:
+            return {
+                "period_days": period_days,
+                "analyzed_prompts": len(top_turns),
+                "high_cost_patterns": ["Analysis unavailable\n分析データを生成できませんでした"],
+                "efficiency_observations": [],
+                "improvement_suggestions": ["Check OpenAI API access\nOpenAI APIアクセスを確認してください"],
+                "example_rewrites": [],
+                "reflection": f"詳細な分析を生成できませんでした。エラー: {str(e)}",
             }
 
     def analyze_token_consumption(self, stats: Dict, sample_messages: List[str], period_days: int) -> Dict:
