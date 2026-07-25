@@ -91,20 +91,33 @@ Return your analysis in JSON format with these keys:
 
     def check_best_practices(self, sample_messages: List[str]) -> Dict:
         """ベストプラクティスに沿っているかチェック（最適化版）"""
+        perspectives = " / ".join(ADVICE_PERSPECTIVES)
         prompt = f"""
-Based on Claude Code best practices, analyze these user interactions and provide results in both English and Japanese:
+You are an expert in Claude Code usage. Evaluate how well the user follows best
+practices. Your evaluation MUST be grounded in the official Anthropic best
+practices reference below (official guidance takes priority over community lore).
 
-Best Practices Reference:
+<best_practices_reference>
 {BEST_PRACTICES}
+</best_practices_reference>
+
+Advice perspectives (use these as category labels): {perspectives}
 
 Sample User Messages:
-{json.dumps(sample_messages[:10], indent=2)}
+{json.dumps(sample_messages[:10], indent=2, ensure_ascii=False)}
 
-Evaluate how well the user follows best practices. Return JSON with:
+Evaluate the sample messages against the perspectives above. Ground every check
+in what you can actually observe in the messages (quote or paraphrase them).
+Prefix EVERY item in passed_checks / failed_checks / recommendations with its
+perspective label in square brackets, e.g. "[Specificity] ...", using the same
+label on both the English and Japanese lines. When a point comes from official
+guidance, say so naturally.
+
+Return JSON with:
 - score (0-100)
-- passed_checks (array of strings, each in "English\\n日本語" format - English on first line, Japanese translation on second line)
-- failed_checks (array of strings, each in "English\\n日本語" format - English on first line, Japanese translation on second line)
-- recommendations (array of strings, each in "English\\n日本語" format - English on first line, Japanese translation on second line)
+- passed_checks (array of strings, each in "[Perspective] English\\n[Perspective] 日本語" format - English on first line, Japanese translation on second line)
+- failed_checks (array of strings, each in "[Perspective] English\\n[Perspective] 日本語" format - English on first line, Japanese translation on second line)
+- recommendations (array of strings, each in "[Perspective] English\\n[Perspective] 日本語" format - English on first line, Japanese translation on second line)
 """
 
         response = self.client.chat.completions.create(
@@ -134,30 +147,36 @@ Evaluate how well the user follows best practices. Return JSON with:
 
     def suggest_prompt_improvements(self, original_prompt: str) -> Dict:
         """プロンプトの改善案を提案"""
+        perspectives = " / ".join(ADVICE_PERSPECTIVES)
         prompt = f"""
-As an expert in Claude Code usage following official best practices (https://www.anthropic.com/engineering/claude-code-best-practices), improve this user prompt and provide bilingual explanations:
+You are an expert in Claude Code usage. Improve this user prompt and provide
+bilingual explanations. Your improvements MUST be grounded in the official
+Anthropic best practices reference below (official guidance takes priority over
+community lore).
 
 Original prompt:
 "{original_prompt}"
 
-Claude Code Best Practices Reference:
+<best_practices_reference>
 {BEST_PRACTICES}
+</best_practices_reference>
 
-Analyze the original prompt and provide an improved version that:
-1. Is more specific and actionable (e.g., "create a login form" → "create a React login form with email/password fields, validation, and submit button")
-2. Follows the "Explore, Plan, Code, Commit" workflow when appropriate (e.g., "First read the existing auth files, then create a plan for the login feature")
-3. References specific files or paths when relevant (e.g., "Update src/components/Auth.tsx")
-4. Uses clear, structured instructions (e.g., numbered steps or bullet points)
-5. Includes relevant context about the project or requirements
-6. Suggests using images/screenshots for visual tasks
-7. Recommends /clear if switching between unrelated tasks
-8. Breaks large tasks into checklists when appropriate
+Advice perspectives (use these as category labels): {perspectives}
+
+Analyze the original prompt and produce an improved version that applies the
+relevant perspectives above. Depending on the prompt, this may mean: adding
+scope and specific file paths (Specificity / Rich Input), separating explore
+from implement (Workflow), adding verification criteria such as tests or
+expected output (Verification), suggesting delegation to subagents for broad
+investigation (Delegation), or recommending /clear when switching tasks
+(Context Hygiene). Apply only what genuinely improves THIS prompt — do not
+force irrelevant practices.
 
 Return JSON with:
 - improved_prompt (the complete improved version with all enhancements)
-- explanation_en (detailed explanation in English of why these changes improve the prompt, referencing specific best practices)
-- explanation_ja (detailed explanation in Japanese of why these changes improve the prompt, referencing specific best practices)
-- best_practice_references (array of strings, each in "English\\n日本語" format - English on first line, Japanese translation on second line. For example: ["Be Specific\\n具体的に指示する", "Explore, Plan, Code, Commit\\n探索、計画、コード、コミットのワークフロー"])
+- explanation_en (detailed explanation in English of why these changes improve the prompt, naming the applied perspectives/official practices)
+- explanation_ja (detailed explanation in Japanese of why these changes improve the prompt, naming the applied perspectives/official practices)
+- best_practice_references (array of strings, each in "[Perspective] English\\n[Perspective] 日本語" format - English on first line, Japanese translation on second line. For example: ["[Specificity] Scope the task with specific files\\n[Specificity] 対象ファイルを明示してスコープを絞る", "[Verification] Give Claude a check it can run\\n[Verification] Claudeが実行できる検証手段を与える"])
 """
 
         response = self.client.chat.completions.create(

@@ -39,7 +39,9 @@ class BestPracticesCheck(BaseModel):
 class PromptImprovement(BaseModel):
     original_prompt: str
     improved_prompt: str
-    explanation: str
+    explanation: Optional[str] = None  # 後方互換のため残置
+    explanation_en: Optional[str] = None
+    explanation_ja: Optional[str] = None
     best_practice_references: list[str]
 
 
