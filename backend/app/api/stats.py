@@ -181,3 +181,11 @@ async def sync_database(
         "skipped": result["skipped"],
         "total_entries": result["total_entries"]
     }
+
+
+@router.get("/sync-status")
+async def get_sync_status(
+    collector: ClaudeDataCollector = Depends(get_collector)
+):
+    """最終同期時刻・総エントリ数・取り込み済みデータの最新日付を取得"""
+    return collector.db.get_sync_status()

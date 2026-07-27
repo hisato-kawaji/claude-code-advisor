@@ -21,6 +21,12 @@ body {
   min-height: 100vh;
 }
 
+.page-content {
+  padding: 24px 28px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
 .dashboard {
   max-width: 1400px;
   width: 100%;

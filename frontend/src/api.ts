@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { ComparisonStats, PerformanceAnalysis, BestPracticesCheck, PromptImprovement, RecentPrompt, TokenReflection, HourlyUsage, PromptTokenAnalysis, PromptTokenInsights } from './types';
+import type { ComparisonStats, PerformanceAnalysis, BestPracticesCheck, PromptImprovement, RecentPrompt, TokenReflection, HourlyUsage, PromptTokenAnalysis, PromptTokenInsights, SyncStatus } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -31,6 +31,9 @@ export const statsApi = {
 
   syncDatabase: () =>
     api.post<{ status: string; inserted: number; skipped: number; total_entries: number }>('/api/stats/sync'),
+
+  getSyncStatus: () =>
+    api.get<SyncStatus>('/api/stats/sync-status'),
 };
 
 export const analysisApi = {

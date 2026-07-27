@@ -144,3 +144,9 @@ export interface HourlyUsage {
   input_tokens: number;
   output_tokens: number;
 }
+
+export interface SyncStatus {
+  last_sync: string | null;
+  total_entries: number;
+  latest_data_date: string | null;
+}

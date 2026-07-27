@@ -1,10 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
-import { DashboardPage } from './pages/DashboardPage';
-import { MonitoringPage } from './pages/MonitoringPage';
-import { TokenReflectionPage } from './pages/TokenReflectionPage';
+import { Header } from './components/Header';
+import { OverviewPage } from './pages/OverviewPage';
 import { PromptAnalysisPage } from './pages/PromptAnalysisPage';
+import { AdvicePage } from './pages/AdvicePage';
 import './App.css';
 
 const queryClient = new QueryClient({
@@ -29,12 +29,18 @@ function App() {
         <div className="app-layout">
           <Sidebar />
           <div className="main-content">
-            <Routes>
-              <Route path="/" element={<DashboardPage />} />
-              <Route path="/monitoring" element={<MonitoringPage />} />
-              <Route path="/token-reflection" element={<TokenReflectionPage />} />
-              <Route path="/prompt-analysis" element={<PromptAnalysisPage />} />
-            </Routes>
+            <Header />
+            <div className="page-content">
+              <Routes>
+                <Route path="/" element={<OverviewPage />} />
+                <Route path="/prompt-analysis" element={<PromptAnalysisPage />} />
+                <Route path="/advice" element={<AdvicePage />} />
+                {/* 旧ルートは使用状況へリダイレクト */}
+                <Route path="/monitoring" element={<Navigate to="/" replace />} />
+                <Route path="/token-reflection" element={<Navigate to="/advice" replace />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </div>
           </div>
         </div>
       </BrowserRouter>

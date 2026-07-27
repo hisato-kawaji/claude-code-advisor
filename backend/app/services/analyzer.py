@@ -7,6 +7,7 @@ from .prompting_knowledge import (
     DATA_SIGNAL_MAPPING,
     ADVICE_PERSPECTIVES,
 )
+from .prompt_turns import estimate_cost_usd
 
 # 全LLM分析が参照するベストプラクティス。公式ドキュメント比重で整理した
 # 最新ナレッジ（prompting_knowledge.py / docs/claude-prompting-best-practices.md）
@@ -349,13 +350,8 @@ Return JSON with keys:
 
         total_tokens = total_input + total_output
 
-        # Claude Sonnet 3.5のコスト計算 (per million tokens)
-        # Input: $3/MTok, Output: $15/MTok, Cache Write: $3.75/MTok, Cache Read: $0.30/MTok
-        input_cost = (total_input / 1_000_000) * 3.0
-        output_cost = (total_output / 1_000_000) * 15.0
-        cache_write_cost = (cache_creation / 1_000_000) * 3.75
-        cache_read_cost = (cache_read / 1_000_000) * 0.30
-        total_cost = input_cost + output_cost + cache_write_cost + cache_read_cost
+        # コスト計算はprompt_turnsの共通ロジックに集約（単価の単一のsource）
+        total_cost = estimate_cost_usd(total_input, total_output, cache_creation, cache_read)
 
         # 統計値を計算
         avg_per_session = total_tokens / max(total_sessions, 1)

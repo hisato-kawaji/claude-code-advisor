@@ -1,4 +1,5 @@
 import { useState, Fragment } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { analysisApi } from '../api';
 import type { PromptTurn } from '../types';
@@ -56,6 +57,7 @@ function Bilingual({ text }: { text: string }) {
 }
 
 export function PromptAnalysisPage() {
+  const navigate = useNavigate();
   const [days, setDays] = useState(7);
   const [sort, setSort] = useState<SortKey>('total_tokens');
   const [order, setOrder] = useState<'asc' | 'desc'>('desc');
@@ -305,6 +307,17 @@ export function PromptAnalysisPage() {
                                   <div><span>所要時間</span>{formatDuration(t.duration_seconds)}</div>
                                   <div><span>セッション</span>{t.session_id.slice(0, 8)}…</div>
                                 </div>
+                                {!t.is_command && (
+                                  <button
+                                    className="pt-improve-btn"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      navigate(`/advice?prompt=${encodeURIComponent(t.prompt)}`);
+                                    }}
+                                  >
+                                    ✏️ このプロンプトを改善する
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>

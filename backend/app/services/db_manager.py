@@ -275,6 +275,27 @@ class DatabaseManager:
             cursor.execute("SELECT COUNT(*) as count FROM session_entries")
             return cursor.fetchone()["count"]
 
+    def get_sync_status(self) -> Dict:
+        """最終同期時刻・総エントリ数・取り込み済みデータの最新日付を取得"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT last_sync FROM sync_metadata
+                ORDER BY id DESC LIMIT 1
+            """)
+            row = cursor.fetchone()
+            last_sync = row["last_sync"] if row else None
+
+            cursor.execute("SELECT COUNT(*) as count, MAX(date) as latest_date FROM session_entries")
+            row = cursor.fetchone()
+
+            return {
+                "last_sync": last_sync,
+                "total_entries": row["count"] or 0,
+                "latest_data_date": row["latest_date"],
+            }
+
     def record_sync(self, files_processed: int, entries_added: int):
         """同期メタデータを記録"""
         with self.get_connection() as conn:

@@ -5,10 +5,9 @@ export function Sidebar() {
   const location = useLocation();
 
   const menuItems = [
-    { path: '/', label: 'ダッシュボード', icon: '📊' },
-    { path: '/monitoring', label: 'モニタリング', icon: '🕒' },
-    { path: '/token-reflection', label: 'トークン振り返り', icon: '💭' },
+    { path: '/', label: '使用状況', icon: '📊' },
     { path: '/prompt-analysis', label: 'プロンプト分析', icon: '🔍' },
+    { path: '/advice', label: '改善アドバイス', icon: '💡' },
   ];
 
   return (
