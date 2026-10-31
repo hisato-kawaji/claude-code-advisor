@@ -4,6 +4,7 @@ import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { OverviewPage } from './pages/OverviewPage';
 import { PromptAnalysisPage } from './pages/PromptAnalysisPage';
+import { SettingsPage } from './pages/SettingsPage';
 import { AdvicePage } from './pages/AdvicePage';
 import './App.css';
 
@@ -35,6 +36,7 @@ function App() {
                 <Route path="/" element={<OverviewPage />} />
                 <Route path="/prompt-analysis" element={<PromptAnalysisPage />} />
                 <Route path="/advice" element={<AdvicePage />} />
+                <Route path="/settings" element={<SettingsPage />} />
                 {/* 旧ルートは使用状況へリダイレクト */}
                 <Route path="/monitoring" element={<Navigate to="/" replace />} />
                 <Route path="/token-reflection" element={<Navigate to="/advice" replace />} />

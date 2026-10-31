@@ -1,0 +1,5 @@
+.send-preview-backdrop { position: fixed; inset: 0; z-index: 1000; background: #0009; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+.send-preview { background: white; color: #222; border-radius: 8px; padding: 1.5rem; width: min(850px, 100%); max-height: 90vh; display: flex; flex-direction: column; gap: 1rem; }
+.send-preview pre { overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: #f4f4f4; padding: 1rem; flex: 1; min-height: 100px; }
+.send-preview-actions { display: flex; gap: 1rem; justify-content: flex-end; }
+.send-preview-actions button { padding: .6rem 1rem; cursor: pointer; }

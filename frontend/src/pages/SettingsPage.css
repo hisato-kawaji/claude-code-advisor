@@ -1,0 +1,6 @@
+.settings-page { max-width: 1000px; display: flex; flex-direction: column; gap: .8rem; }
+.settings-page h2 { margin-top: 1.5rem; }
+.settings-page label { display: flex; flex-direction: column; gap: .3rem; font-weight: 600; }
+.settings-page textarea, .settings-page input, .settings-page select { padding: .6rem; font: inherit; border: 1px solid #aaa; border-radius: 4px; }
+.settings-page textarea { font-family: monospace; }
+.settings-page button { align-self: flex-start; padding: .5rem .8rem; }

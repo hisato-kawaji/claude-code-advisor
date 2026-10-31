@@ -25,7 +25,7 @@ export interface PerformanceAnalysis {
 }
 
 export interface BestPracticesCheck {
-  score: number;
+  score: number | null;
   passed_checks: string[];
   failed_checks: string[];
   recommendations: string[];
@@ -41,6 +41,7 @@ export interface PromptImprovement {
 }
 
 export interface RecentPrompt {
+  project_path: string | null;
   timestamp: string;
   prompt: string;
   session_id: string;
@@ -52,7 +53,7 @@ export interface TokenConsumptionSummary {
   total_tokens: number;
   cache_creation_tokens: number;
   cache_read_tokens: number;
-  estimated_cost_usd: number;
+  estimated_cost_usd: number | null;
   avg_tokens_per_session: number;
   avg_tokens_per_day: number;
   input_output_ratio: number;
@@ -84,6 +85,7 @@ export interface TokenReflection {
 export interface PromptTurn {
   session_id: string;
   project: string | null;
+  project_path: string | null;
   timestamp: string;
   prompt: string;
   prompt_length: number;
@@ -93,7 +95,7 @@ export interface PromptTurn {
   cache_creation_tokens: number;
   cache_read_tokens: number;
   total_tokens: number;
-  estimated_cost_usd: number;
+  estimated_cost_usd: number | null;
   assistant_messages: number;
   tool_use_count: number;
   duration_seconds: number;
@@ -108,14 +110,14 @@ export interface PromptTokenSummary {
   total_prompts: number;
   command_prompts: number;
   total_tokens: number;
-  total_cost_usd: number;
+  total_cost_usd: number | null;
   avg_tokens_per_prompt: number;
   median_tokens_per_prompt: number;
   p90_tokens_per_prompt: number;
   max_tokens_per_prompt: number;
   attributed_tokens: number;
   unattributed_tokens: number;
-  attribution_coverage_pct: number;
+  attribution_coverage_pct: number | null;
   histogram: TokenHistogramBucket[];
   top_prompts: PromptTurn[];
 }

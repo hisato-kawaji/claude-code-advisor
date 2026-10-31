@@ -30,7 +30,7 @@ class PerformanceAnalysis(BaseModel):
 
 
 class BestPracticesCheck(BaseModel):
-    score: float
+    score: Optional[float] = None
     passed_checks: list[str]
     failed_checks: list[str]
     recommendations: list[str]
@@ -51,7 +51,7 @@ class TokenConsumptionSummary(BaseModel):
     total_tokens: int
     cache_creation_tokens: int
     cache_read_tokens: int
-    estimated_cost_usd: float
+    estimated_cost_usd: Optional[float]
     avg_tokens_per_session: float
     avg_tokens_per_day: float
     input_output_ratio: float
@@ -83,6 +83,7 @@ class TokenReflection(BaseModel):
 class PromptTurn(BaseModel):
     session_id: str
     project: Optional[str] = None
+    project_path: Optional[str] = None
     timestamp: str
     prompt: str
     prompt_length: int
@@ -92,7 +93,7 @@ class PromptTurn(BaseModel):
     cache_creation_tokens: int
     cache_read_tokens: int
     total_tokens: int
-    estimated_cost_usd: float
+    estimated_cost_usd: Optional[float]
     assistant_messages: int
     tool_use_count: int
     duration_seconds: float
@@ -107,14 +108,14 @@ class PromptTokenSummary(BaseModel):
     total_prompts: int
     command_prompts: int
     total_tokens: int
-    total_cost_usd: float
+    total_cost_usd: Optional[float]
     avg_tokens_per_prompt: float
     median_tokens_per_prompt: float
     p90_tokens_per_prompt: float
     max_tokens_per_prompt: int
     attributed_tokens: int
     unattributed_tokens: int
-    attribution_coverage_pct: float
+    attribution_coverage_pct: Optional[float]
     histogram: list[TokenHistogramBucket]
     top_prompts: list[PromptTurn]
 

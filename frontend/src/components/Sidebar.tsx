@@ -8,6 +8,7 @@ export function Sidebar() {
     { path: '/', label: '使用状況', icon: '📊' },
     { path: '/prompt-analysis', label: 'プロンプト分析', icon: '🔍' },
     { path: '/advice', label: '改善アドバイス', icon: '💡' },
+    { path: '/settings', label: '設定とテレメトリー', icon: '⚙️' },
   ];
 
   return (

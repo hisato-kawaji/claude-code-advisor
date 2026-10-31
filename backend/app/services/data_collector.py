@@ -36,46 +36,24 @@ class ClaudeDataCollector:
                     continue
         return data
 
-    def _get_cache_key(self) -> str:
-        """プロジェクトディレクトリの最終更新時刻からキャッシュキーを生成"""
+    def _session_files(self):
         if not self.projects_dir.exists():
-            return "empty"
-
-        # 全てのJSONLファイルの最終更新時刻を収集
-        mtimes = []
-        for project_dir in self.projects_dir.iterdir():
-            if not project_dir.is_dir():
-                continue
-            for session_file in project_dir.glob("*.jsonl"):
-                mtimes.append(str(session_file.stat().st_mtime))
-
-        # ハッシュ化してキャッシュキーとして使用
-        if not mtimes:
-            return "empty"
-        return hashlib.md5("".join(sorted(mtimes)).encode()).hexdigest()
+            return []
+        # Parent transcripts and Claude Code's session/subagents/*.jsonl.
+        return sorted(p for p in self.projects_dir.rglob("*.jsonl")
+                      if p.is_file() and not p.is_symlink())
 
     def get_all_sessions(self) -> List[Dict]:
-        """全てのセッションデータを取得（キャッシュ付き）"""
-        cache_key = self._get_cache_key()
-        return self._get_all_sessions_cached(cache_key)
-
-    @lru_cache(maxsize=1)
-    def _get_all_sessions_cached(self, cache_key: str) -> List[Dict]:
-        """キャッシュされたセッションデータ取得"""
-        all_sessions = []
-
-        if not self.projects_dir.exists():
-            return all_sessions
-
-        for project_dir in self.projects_dir.iterdir():
-            if not project_dir.is_dir():
-                continue
-
-            for session_file in project_dir.glob("*.jsonl"):
-                session_data = self.read_jsonl(session_file)
-                all_sessions.extend(session_data)
-
-        return all_sessions
+        result = []
+        for path in self._session_files():
+            for entry in self.read_jsonl(path):
+                if isinstance(entry, dict):
+                    entry["_analytics_source"] = {
+                        "path": str(path.relative_to(self.projects_dir)),
+                        "kind": "subagent" if "subagents" in path.parts else "session",
+                    }
+                    result.append(entry)
+        return result
 
     def get_usage_stats(self, start_date: datetime, end_date: datetime) -> Dict:
         """指定期間の使用統計を取得（DB最適化版）"""
@@ -497,29 +475,33 @@ class ClaudeDataCollector:
 
     def sync_to_database(self) -> Dict[str, int]:
         """JSONLファイルからDBへデータを同期（重複排除）"""
-        print("Starting database sync...")
-        all_sessions = self.get_all_sessions()
-        print(f"Found {len(all_sessions)} entries in JSONL files")
-
-        # 一括挿入
-        inserted, skipped = self.db.bulk_insert_entries(all_sessions)
-
-        # 同期メタデータを記録
-        files_count = 0
-        if self.projects_dir.exists():
-            for project_dir in self.projects_dir.iterdir():
-                if project_dir.is_dir():
-                    files_count += len(list(project_dir.glob("*.jsonl")))
-
-        self.db.record_sync(files_count, inserted)
-
-        print(f"Sync complete: {inserted} entries inserted, {skipped} duplicates skipped")
-
-        return {
-            "inserted": inserted,
-            "skipped": skipped,
-            "total_entries": self.db.get_total_entries_count()
-        }
+        files = self._session_files()
+        entries = []
+        malformed = 0
+        for path in files:
+            try:
+                with path.open(encoding="utf-8") as source:
+                    for line_number, line in enumerate(source, 1):
+                        try:
+                            entry = json.loads(line)
+                            if not isinstance(entry, dict):
+                                raise ValueError("Not an object")
+                            entry["_analytics_source"] = {
+                                "path": str(path.relative_to(self.projects_dir)),
+                                "line": line_number,
+                                "kind": "subagent" if "subagents" in path.parts else "session",
+                            }
+                            entries.append(entry)
+                        except (json.JSONDecodeError, ValueError):
+                            malformed += 1
+            except (OSError, UnicodeError):
+                malformed += 1
+        inserted, skipped, invalid = self.db.bulk_insert_entries(entries)
+        self.db.record_sync(len(files), inserted)
+        return {"inserted": inserted, "skipped": skipped, "invalid": invalid,
+                "malformed": malformed, "files_processed": len(files),
+                "subagent_files": sum("subagents" in p.parts for p in files),
+                "total_entries": self.db.get_total_entries_count()}
 
     def get_prompt_turns(self, days: int = 7) -> Dict:
         """プロンプト単位のトークン帰属分析データを取得（DB使用）
@@ -537,7 +519,8 @@ class ClaudeDataCollector:
         rows = self.db.get_entries_for_prompt_analysis(
             start_date.isoformat(), end_date.isoformat()
         )
-        turns, unattributed = build_turns(rows)
+        from .settings_store import load_settings
+        turns, unattributed = build_turns(rows, load_settings(self.db))
         summary = summarize_turns(turns, unattributed)
 
         return {"turns": turns, "summary": summary}

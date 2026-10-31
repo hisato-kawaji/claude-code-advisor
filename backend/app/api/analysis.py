@@ -1,4 +1,7 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
+from pydantic import BaseModel, Field, ValidationError
+from openai import OpenAIError
+from typing import Any
 from datetime import datetime, timedelta
 from app.models.schemas import (
     PerformanceAnalysis,
@@ -11,6 +14,9 @@ from app.models.schemas import (
 from app.services.data_collector import ClaudeDataCollector
 from app.services.analyzer import ClaudeAnalyzer
 from app.config import get_settings, Settings
+from app.services.settings_store import load_settings, redact, excluded
+from app.services.prompt_turns import classify_user_entry, summarize_turns
+import json
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
@@ -24,56 +30,85 @@ def get_analyzer(settings: Settings = Depends(get_settings)) -> ClaudeAnalyzer:
     return ClaudeAnalyzer(settings.openai_api_key, settings.openai_model)
 
 
-@router.get("/performance", response_model=PerformanceAnalysis)
-async def analyze_performance(
-    days: int = Query(7, description="Number of days to analyze"),
-    collector: ClaudeDataCollector = Depends(get_collector),
-    analyzer: ClaudeAnalyzer = Depends(get_analyzer)
-):
-    """パフォーマンスを分析してフィードバックを提供（DB最適化版）"""
-    # DB最適化版：統計データとサンプルメッセージのみ取得
-    data = collector.get_analysis_data_optimized(days)
-
-    if data["stats"]["total_messages"] == 0:
-        raise HTTPException(status_code=404, detail="No sessions found in the specified period")
-
-    # LLMで分析
-    analysis = analyzer.analyze_performance(data["stats"], data["sample_messages"])
-
-    return PerformanceAnalysis(**analysis)
+class PromptRequest(BaseModel):
+    prompt: str = Field(min_length=5, max_length=20000)
+    consent: bool
+    project_path: str | None = None
 
 
-@router.get("/best-practices", response_model=BestPracticesCheck)
-async def check_best_practices(
-    days: int = Query(7, description="Number of days to analyze"),
-    collector: ClaudeDataCollector = Depends(get_collector),
-    analyzer: ClaudeAnalyzer = Depends(get_analyzer)
-):
-    """ベストプラクティスに沿っているかチェック（DB最適化版）"""
-    # DB最適化版：サンプルメッセージのみ取得
-    data = collector.get_analysis_data_optimized(days)
+class AdviceRequest(BaseModel):
+    consent: bool
+    prompt_excerpts: list[str] = Field(max_length=10)
 
-    if data["stats"]["total_messages"] == 0:
-        raise HTTPException(status_code=404, detail="No sessions found in the specified period")
 
-    # LLMでチェック
-    result = analyzer.check_best_practices(data["sample_messages"])
+class InsightsRequest(BaseModel):
+    consent: bool
+    period_days: int = Field(ge=1, le=365)
+    summary: dict[str, Any]
+    turns: list[dict[str, Any]] = Field(max_length=30)
 
-    return BestPracticesCheck(**result)
+
+def require_consent(consent: bool):
+    if not consent:
+        raise HTTPException(status_code=400, detail="Explicit consent is required to send data to OpenAI")
+
+
+def analysis_response(model, operation):
+    try:
+        return model(**operation())
+    except (ValueError, KeyError, TypeError, ValidationError, OpenAIError):
+        raise HTTPException(status_code=502, detail="Analysis returned an invalid response")
+
+
+@router.get("/performance", deprecated=True)
+@router.get("/token-reflection", deprecated=True)
+async def retired_analysis():
+    # These endpoints previously fabricated scores or cost estimates.
+    raise HTTPException(status_code=410, detail="This analysis is unavailable because its metrics were not evidence-based")
+
+
+@router.get("/best-practices/preview")
+async def preview_best_practices(days: int = Query(7, ge=1, le=365), collector: ClaudeDataCollector = Depends(get_collector)):
+    config = load_settings(collector.db)
+    end = datetime.now().date()
+    rows = collector.db.get_entries_by_date_range((end - timedelta(days=days)).isoformat(), end.isoformat())
+    excerpts = []
+    for entry in reversed(rows):
+        if entry.get("type") != "user" or excluded(entry.get("cwd"), config['excluded_projects']):
+            continue
+        kind, text, _ = classify_user_entry(entry)
+        if kind == 'prompt' and text:
+            excerpts.append(text[:300])
+        if len(excerpts) == 10:
+            break
+    if not excerpts:
+        raise HTTPException(status_code=404, detail="No eligible prompts found in the specified period")
+    return {"prompt_excerpts": redact(excerpts, config['redact_literals'])}
+
+
+@router.post("/best-practices", response_model=BestPracticesCheck)
+async def check_best_practices(request: AdviceRequest, analyzer: ClaudeAnalyzer = Depends(get_analyzer), collector: ClaudeDataCollector = Depends(get_collector)):
+    require_consent(request.consent)
+    return analysis_response(BestPracticesCheck, lambda: analyzer.check_best_practices(redact(request.prompt_excerpts, load_settings(collector.db)['redact_literals'])))
+
+
+@router.post("/improve-prompt/preview")
+async def preview_prompt(request: PromptRequest, collector: ClaudeDataCollector = Depends(get_collector)):
+    config = load_settings(collector.db)
+    if request.project_path and excluded(request.project_path, config['excluded_projects']):
+        raise HTTPException(status_code=403, detail="Project is excluded from external analysis")
+    return {"prompt": redact(request.prompt, config['redact_literals']), "project_path": request.project_path}
 
 
 @router.post("/improve-prompt", response_model=PromptImprovement)
-async def improve_prompt(
-    prompt: str = Query(..., description="The prompt to improve"),
-    analyzer: ClaudeAnalyzer = Depends(get_analyzer)
-):
-    """プロンプトの改善提案を取得"""
-    if not prompt or len(prompt.strip()) < 5:
+async def improve_prompt(request: PromptRequest, analyzer: ClaudeAnalyzer = Depends(get_analyzer), collector: ClaudeDataCollector = Depends(get_collector)):
+    require_consent(request.consent)
+    config = load_settings(collector.db)
+    if request.project_path and excluded(request.project_path, config['excluded_projects']):
+        raise HTTPException(status_code=403, detail="Project is excluded from external analysis")
+    if len(request.prompt.strip()) < 5:
         raise HTTPException(status_code=400, detail="Prompt is too short")
-
-    result = analyzer.suggest_prompt_improvements(prompt)
-
-    return PromptImprovement(**result)
+    return analysis_response(PromptImprovement, lambda: analyzer.suggest_prompt_improvements(redact(request.prompt, config['redact_literals'])))
 
 
 @router.get("/recent-prompts")
@@ -139,7 +174,8 @@ async def get_recent_prompts(
                 user_prompts.append({
                     "timestamp": session.get("timestamp"),
                     "prompt": display.strip()[:500],  # 最初の500文字
-                    "session_id": session.get("sessionId")
+                    "session_id": session.get("sessionId"),
+                    "project_path": session.get("cwd")
                 })
 
             if len(user_prompts) >= limit:
@@ -152,7 +188,6 @@ PROMPT_TOKEN_SORT_KEYS = {
     "total_tokens",
     "output_tokens",
     "cache_read_tokens",
-    "estimated_cost_usd",
     "timestamp",
     "tool_use_count",
     "assistant_messages",
@@ -172,9 +207,7 @@ async def get_prompt_token_analysis(
 ):
     """プロンプト単位のトークン帰属データを網羅的に取得（LLM不使用・高速）
 
-    各プロンプトに、次のプロンプトまでのassistant消費（サブエージェント・
-    ツール実行含む）を1対1で帰属させたターン一覧を返す。
-    summary.attribution_coverage_pctで帰属の正確性を検証できる。
+    取得済みの履歴を時系列で推定帰属する。網羅性や正確性は保証しない。
     """
     if sort not in PROMPT_TOKEN_SORT_KEYS:
         raise HTTPException(status_code=400, detail=f"Invalid sort key: {sort}")
@@ -199,63 +232,24 @@ async def get_prompt_token_analysis(
     )
 
 
-@router.get("/prompt-tokens/insights", response_model=PromptTokenInsights)
-async def get_prompt_token_insights(
-    days: int = Query(7, description="Number of days to analyze"),
-    top: int = Query(15, ge=3, le=30, description="Number of top prompts to analyze"),
-    collector: ClaudeDataCollector = Depends(get_collector),
-    analyzer: ClaudeAnalyzer = Depends(get_analyzer)
-):
-    """消費上位プロンプトをLLMで分析し、高消費パターンと改善示唆を返す"""
+@router.get("/prompt-tokens/insights/preview")
+async def preview_insights(days: int = Query(7, ge=1, le=365), top: int = Query(15, ge=3, le=30), collector: ClaudeDataCollector = Depends(get_collector)):
     data = collector.get_prompt_turns(days)
-    turns = data["turns"]
-
+    config = load_settings(collector.db)
+    eligible = [t for t in data["turns"] if not excluded(t.get("project_path"), config["excluded_projects"])]
+    turns = sorted(eligible, key=lambda t: t["total_tokens"], reverse=True)[:top]
     if not turns:
         raise HTTPException(status_code=404, detail="No prompts found in the specified period")
+    # Return exactly the fields sent to the external model, including truncated text.
+    fields = ("prompt", "total_tokens", "output_tokens", "cache_read_tokens", "tool_use_count", "duration_seconds")
+    selected = [{k: t[k][:300] if k == "prompt" else t[k] for k in fields} for t in turns]
+    # Excluded projects and unattributed usage are not forwarded in aggregates.
+    unknown = {k: 0 for k in ("input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens", "assistant_messages")}
+    summary = {k: v for k, v in summarize_turns(eligible, unknown).items() if k not in ("top_prompts", "attribution_coverage_pct")}
+    return redact({"period_days": days, "summary": summary, "turns": selected}, config['redact_literals'])
 
-    top_turns = sorted(turns, key=lambda t: t["total_tokens"], reverse=True)[:top]
 
-    result = analyzer.analyze_prompt_token_patterns(data["summary"], top_turns, days)
-
-    return PromptTokenInsights(**result)
-
-
-@router.get("/token-reflection", response_model=TokenReflection)
-async def analyze_token_consumption(
-    days: int = Query(7, description="Number of days to analyze"),
-    collector: ClaudeDataCollector = Depends(get_collector),
-    analyzer: ClaudeAnalyzer = Depends(get_analyzer)
-):
-    """トークン消費量を分析して振り返りを提供（DB最適化版）"""
-    # DB最適化版：統計データとサンプルメッセージのみ取得
-    data = collector.get_analysis_data_optimized(days)
-
-    # セッションがない場合はダミーデータを返す
-    if data["stats"]["total_messages"] == 0:
-        return TokenReflection(
-            period_days=days,
-            summary={
-                "total_input_tokens": 0,
-                "total_output_tokens": 0,
-                "total_tokens": 0,
-                "cache_creation_tokens": 0,
-                "cache_read_tokens": 0,
-                "estimated_cost_usd": 0.0,
-                "avg_tokens_per_session": 0.0,
-                "avg_tokens_per_day": 0.0,
-                "input_output_ratio": 0.0
-            },
-            analysis={
-                "efficiency_score": 0.0,
-                "token_usage_pattern": "データがありません",
-                "most_token_intensive_activities": [],
-                "cost_optimization_suggestions": ["Claude Codeを使用してデータを生成してください"],
-                "next_steps": ["Claude Codeでタスクを実行してトークン使用データを蓄積しましょう"]
-            },
-            reflection=f"過去{days}日間のトークン使用データが見つかりませんでした。Claude Codeを使用してタスクを実行すると、ここに詳細な振り返りが表示されます。"
-        )
-
-    # LLMでトークン消費を分析
-    result = analyzer.analyze_token_consumption(data["stats"], data["sample_messages"], days)
-
-    return TokenReflection(**result)
+@router.post("/prompt-tokens/insights", response_model=PromptTokenInsights)
+async def get_prompt_token_insights(request: InsightsRequest, analyzer: ClaudeAnalyzer = Depends(get_analyzer), collector: ClaudeDataCollector = Depends(get_collector)):
+    require_consent(request.consent)
+    return analysis_response(PromptTokenInsights, lambda: analyzer.analyze_prompt_token_patterns(redact(request.summary, load_settings(collector.db)['redact_literals']), redact(request.turns, load_settings(collector.db)['redact_literals']), request.period_days))

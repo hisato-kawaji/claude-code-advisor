@@ -58,6 +58,8 @@ export function Header() {
             <span className="sync-latest">データ最新日: {syncStatus.latest_data_date}</span>
           )}
         </div>
+        {syncMutation.data && <span role="status">同期: {syncMutation.data.inserted}件追加 / 子エージェント {syncMutation.data.subagent_files}ファイル / 不正・読込失敗 {syncMutation.data.invalid + syncMutation.data.malformed}件</span>}
+        {syncMutation.isError && <span role="alert">同期に失敗しました</span>}
         <button
           className="sync-button"
           onClick={() => syncMutation.mutate()}

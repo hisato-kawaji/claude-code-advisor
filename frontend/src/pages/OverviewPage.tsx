@@ -61,7 +61,7 @@ export function OverviewPage() {
 
   const chartData = useMemo(() => {
     if (!historyData?.history) return [];
-    return historyData.history.map((item: any) => ({
+    return historyData.history.map((item) => ({
       date: item.date,
       sessions: item.total_sessions,
       messages: item.total_messages,

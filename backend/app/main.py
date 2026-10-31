@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from app.api import stats, analysis
+from app.api import stats, analysis, settings, telemetry
 from app.services.data_collector import ClaudeDataCollector
 from app.config import get_settings
 
@@ -37,7 +37,7 @@ app = FastAPI(
 # CORS設定
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3332", "http://localhost:3000", "http://localhost:5173"],
+    allow_origins=get_settings().cors_origins.split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -46,6 +46,8 @@ app.add_middleware(
 # ルーターを登録
 app.include_router(stats.router)
 app.include_router(analysis.router)
+app.include_router(settings.router)
+app.include_router(telemetry.router)
 
 
 @app.get("/")

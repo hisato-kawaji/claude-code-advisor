@@ -179,6 +179,10 @@ async def sync_database(
         "status": "success",
         "inserted": result["inserted"],
         "skipped": result["skipped"],
+        "invalid": result["invalid"],
+        "malformed": result["malformed"],
+        "files_processed": result["files_processed"],
+        "subagent_files": result["subagent_files"],
         "total_entries": result["total_entries"]
     }
 

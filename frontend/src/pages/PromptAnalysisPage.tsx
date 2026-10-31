@@ -1,6 +1,6 @@
 import { useState, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { analysisApi } from '../api';
 import type { PromptTurn } from '../types';
 import {
@@ -12,6 +12,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
+import { SendPreview } from '../components/SendPreview';
 import './PromptAnalysisPage.css';
 
 const PAGE_SIZE = 20;
@@ -19,13 +20,12 @@ const PAGE_SIZE = 20;
 type SortKey =
   | 'total_tokens'
   | 'output_tokens'
-  | 'estimated_cost_usd'
   | 'tool_use_count'
   | 'duration_seconds'
   | 'timestamp';
 
 const formatNumber = (num: number) => num.toLocaleString();
-const formatCost = (cost: number) => `$${cost.toFixed(2)}`;
+const formatCost = (cost: number | null) => cost === null ? "不明" : `$${cost.toFixed(6)}`;
 
 const formatDuration = (seconds: number) => {
   if (seconds < 60) return `${Math.round(seconds)}秒`;
@@ -80,18 +80,18 @@ export function PromptAnalysisPage() {
       ).data,
   });
 
-  const {
-    data: insights,
-    isFetching: insightsLoading,
-    isError: insightsError,
-    refetch: fetchInsights,
-  } = useQuery({
-    queryKey: ['promptTokenInsights', days],
-    queryFn: async () => (await analysisApi.getPromptTokenInsights(days)).data,
-    enabled: false,
-    staleTime: 15 * 60 * 1000,
-    gcTime: 60 * 60 * 1000,
+  const { data: insights, isPending: insightsLoading, isError: insightsError, mutate: analyzeInsights } = useMutation({
+    mutationFn: async (preview: Awaited<ReturnType<typeof analysisApi.previewPromptTokenInsights>>['data']) =>
+      (await analysisApi.getPromptTokenInsights(preview)).data,
   });
+  const [previewError, setPreviewError] = useState(false);
+  const [preview, setPreview] = useState<Awaited<ReturnType<typeof analysisApi.previewPromptTokenInsights>>['data'] | null>(null);
+  const fetchInsights = async () => {
+    try {
+      setPreviewError(false);
+      setPreview((await analysisApi.previewPromptTokenInsights(days)).data);
+    } catch { setPreviewError(true); }
+  };
 
   const changePeriod = (d: number) => {
     setDays(d);
@@ -126,9 +126,10 @@ export function PromptAnalysisPage() {
 
   return (
     <div className="prompt-analysis-page">
+      {preview && <SendPreview payload={preview} onCancel={() => setPreview(null)} onConfirm={() => { analyzeInsights(preview); setPreview(null); }} />}
       <h1>プロンプト別トークン分析</h1>
       <p className="pt-description">
-        各プロンプトに、次のプロンプトまでのアシスタント消費（ツール実行・サブエージェント含む）を1対1で帰属させています。
+        取得済みのローカル履歴を時系列でプロンプトに推定帰属しています。子エージェントは収集し、親が特定できない消費は未帰属にします。並列作業等は誤って帰属される場合があります。合計はInput・Output・Cache Creation・Cache Readの合算です。
       </p>
 
       {/* Period Selector */}
@@ -174,15 +175,15 @@ export function PromptAnalysisPage() {
               <p className="pt-summary-label">p90 {formatNumber(Math.round(summary.p90_tokens_per_prompt))}</p>
             </div>
             <div className="pt-summary-card">
-              <h3>推定総コスト</h3>
+              <h3>帰属分の参考コスト</h3>
               <p className="pt-summary-value cost">{formatCost(summary.total_cost_usd)}</p>
-              <p className="pt-summary-label">USD（キャッシュ込み）</p>
+              <p className="pt-summary-label">設定したAPI単価による参考額。請求額ではありません</p>
             </div>
             <div className="pt-summary-card">
               <h3>帰属率</h3>
-              <p className="pt-summary-value score">{summary.attribution_coverage_pct.toFixed(1)}%</p>
+              <p className="pt-summary-value score">{summary.attribution_coverage_pct == null ? "不明" : `${summary.attribution_coverage_pct.toFixed(1)}%`}</p>
               <p className="pt-summary-label">
-                未帰属 {formatNumber(summary.unattributed_tokens)} トークン
+                取得済みデータ内の未帰属 {formatNumber(summary.unattributed_tokens)} トークン。取得漏れや帰属の正確性は含みません。
               </p>
             </div>
           </div>
@@ -225,7 +226,7 @@ export function PromptAnalysisPage() {
           {/* Comprehensive Table */}
           <div className="pt-table-section">
             <div className="pt-table-header">
-              <h2>全プロンプト一覧（{formatNumber(data.total_count)}件）</h2>
+              <h2>取得済みプロンプト一覧（{formatNumber(data.total_count)}件）</h2>
               <label className="pt-checkbox">
                 <input
                   type="checkbox"
@@ -253,14 +254,14 @@ export function PromptAnalysisPage() {
                     <th className="sortable num" onClick={() => changeSort('output_tokens')}>
                       Output{sortIndicator('output_tokens')}
                     </th>
-                    <th className="sortable num" onClick={() => changeSort('estimated_cost_usd')}>
-                      コスト{sortIndicator('estimated_cost_usd')}
+                    <th className="num">
+                      コスト
                     </th>
                     <th className="sortable num" onClick={() => changeSort('tool_use_count')}>
                       ツール{sortIndicator('tool_use_count')}
                     </th>
                     <th className="sortable num" onClick={() => changeSort('duration_seconds')}>
-                      所要時間{sortIndicator('duration_seconds')}
+                      記録上の経過時間{sortIndicator('duration_seconds')}
                     </th>
                   </tr>
                 </thead>
@@ -304,7 +305,7 @@ export function PromptAnalysisPage() {
                                   <div><span>Cache Read</span>{formatNumber(t.cache_read_tokens)}</div>
                                   <div><span>アシスタント応答</span>{t.assistant_messages}回</div>
                                   <div><span>ツール実行</span>{t.tool_use_count}回</div>
-                                  <div><span>所要時間</span>{formatDuration(t.duration_seconds)}</div>
+                                  <div><span>記録上の経過時間</span>{formatDuration(t.duration_seconds)}</div>
                                   <div><span>セッション</span>{t.session_id.slice(0, 8)}…</div>
                                 </div>
                                 {!t.is_command && (
@@ -312,7 +313,7 @@ export function PromptAnalysisPage() {
                                     className="pt-improve-btn"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      navigate(`/advice?prompt=${encodeURIComponent(t.prompt)}`);
+                                      navigate('/advice', { state: { prompt: t.prompt, projectPath: t.project_path } });
                                     }}
                                   >
                                     ✏️ このプロンプトを改善する
@@ -359,7 +360,7 @@ export function PromptAnalysisPage() {
                 <div className="spinner"></div>
                 <p className="loading-text">消費上位プロンプトを分析中...</p>
               </div>
-            ) : insightsError ? (
+            ) : insightsError || previewError ? (
               <div className="error-container">
                 <p>AI分析に失敗しました。OpenAI APIキーの設定を確認してください。</p>
               </div>
@@ -376,7 +377,7 @@ export function PromptAnalysisPage() {
 
                 {insights.efficiency_observations.length > 0 && (
                   <div className="pt-insight-block">
-                    <h3>🔍 効率に関する観察</h3>
+                    <h3>🔍 利用状況に関する観察</h3>
                     <ul>
                       {insights.efficiency_observations.map((item, i) => (
                         <li key={i}><Bilingual text={item} /></li>

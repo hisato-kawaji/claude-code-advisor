@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     claude_data_path: str = "~/.claude"
     database_path: str = "./data/analytics.db"
+    otel_receiver_token: str = ""
+    cors_origins: str = "http://localhost:3332,http://localhost:3000,http://localhost:5173"
 
     class Config:
         env_file = ".env"

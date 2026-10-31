@@ -5,13 +5,14 @@ services:
     build: ./backend
     container_name: claude-analytics-backend
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=${OPENAI_MODEL}
       - CLAUDE_DATA_PATH=/claude-data
       - DATABASE_PATH=/data/analytics.db
+      - OTEL_RECEIVER_TOKEN=${OTEL_RECEIVER_TOKEN:-}
     volumes:
       - ${HOME}/.claude:/claude-data:ro
       - ./data:/data

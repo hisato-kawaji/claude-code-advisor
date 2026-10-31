@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useLocation } from 'react-router-dom';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { analysisApi } from '../api';
 import type { PromptImprovementExample } from '../types';
+import { SendPreview } from '../components/SendPreview';
 import './AdvicePage.css';
 
 // "[Perspective] English\n[Perspective] 日本語" を分解して日本語優先で表示
@@ -19,66 +20,59 @@ function Bilingual({ text }: { text: string }) {
 const PERIODS = [7, 14, 30];
 
 export function AdvicePage() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
   const [days, setDays] = useState(7);
   const [draft, setDraft] = useState('');
-  const [submittedPrompt, setSubmittedPrompt] = useState('');
-
-  // Best practices score + perspective breakdown (on-demand)
-  const bp = useQuery({
-    queryKey: ['adviceBestPractices', days],
-    queryFn: async () => (await analysisApi.getBestPractices(days)).data,
-    enabled: false,
-    staleTime: 15 * 60 * 1000,
-    gcTime: 60 * 60 * 1000,
-  });
-
-  // High-cost prompt patterns (on-demand)
-  const insights = useQuery({
-    queryKey: ['adviceInsights', days],
-    queryFn: async () => (await analysisApi.getPromptTokenInsights(days)).data,
-    enabled: false,
-    staleTime: 15 * 60 * 1000,
-    gcTime: 60 * 60 * 1000,
-  });
-
-  // Recent prompts for the rewrite picker
-  const recent = useQuery({
-    queryKey: ['adviceRecentPrompts'],
-    queryFn: async () => (await analysisApi.getRecentPrompts(20)).data,
-  });
-
-  // Prompt rewrite (on-demand, keyed by submitted prompt)
-  const improve = useQuery({
-    queryKey: ['adviceImprove', submittedPrompt],
-    queryFn: async () => (await analysisApi.improvePrompt(submittedPrompt)).data,
-    enabled: !!submittedPrompt,
-    staleTime: 15 * 60 * 1000,
-  });
-
-  // プロンプト分析からの遷移（?prompt=...）を受けて自動でプリフィル＆実行
+  const [draftProject, setDraftProject] = useState<string | null>(null);
   useEffect(() => {
-    const p = searchParams.get('prompt');
-    if (p) {
-      setDraft(p);
-      setSubmittedPrompt(p);
-      searchParams.delete('prompt');
-      setSearchParams(searchParams, { replace: true });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const state = location.state as { prompt?: string; projectPath?: string | null } | null;
+    if (state?.prompt) { setDraft(state.prompt); setDraftProject(state.projectPath ?? null); }
+  }, [location.state]);
 
-  const runRewrite = () => {
-    if (draft.trim().length >= 5) setSubmittedPrompt(draft.trim());
+  const bp = useMutation({ mutationFn: async (promptExcerpts: string[]) =>
+    (await analysisApi.getBestPractices(promptExcerpts)).data });
+  const insights = useMutation({ mutationFn: async (preview: Awaited<ReturnType<typeof analysisApi.previewPromptTokenInsights>>['data']) =>
+    (await analysisApi.getPromptTokenInsights(preview)).data });
+  const improve = useMutation({ mutationFn: async (value: { prompt: string; project_path: string | null }) =>
+    (await analysisApi.improvePrompt(value.prompt, value.project_path)).data });
+  const recent = useQuery({ queryKey: ['adviceRecentPrompts'],
+    queryFn: async () => (await analysisApi.getRecentPrompts(20)).data });
+  const [previewError, setPreviewError] = useState(false);
+  const [pending, setPending] = useState<{ payload: unknown; send: () => void } | null>(null);
+
+  const runRewrite = async () => {
+    try {
+      setPreviewError(false);
+      const prompt = draft.trim();
+      if (prompt.length < 5) return;
+      const preview = (await analysisApi.previewPrompt(prompt, draftProject)).data;
+      setPending({ payload: preview, send: () => improve.mutate(preview) });
+    } catch { setPreviewError(true); }
+  };
+  const runBestPractices = async () => {
+    try {
+      setPreviewError(false);
+      const preview = (await analysisApi.previewBestPractices(days)).data;
+      setPending({ payload: preview, send: () => bp.mutate(preview.prompt_excerpts) });
+    } catch { setPreviewError(true); }
+  };
+  const runInsights = async () => {
+    try {
+      setPreviewError(false);
+      const preview = (await analysisApi.previewPromptTokenInsights(days)).data;
+      setPending({ payload: preview, send: () => insights.mutate(preview) });
+    } catch { setPreviewError(true); }
   };
 
   return (
     <div className="advice-page">
+      {pending && <SendPreview payload={pending.payload} onCancel={() => setPending(null)} onConfirm={() => { pending.send(); setPending(null); }} />}
       <h1 className="page-title">改善アドバイス</h1>
       <p className="adv-description">
-        最新の公式ベストプラクティスに基づき、使い方の評価・高消費パターン・プロンプトの書き換えを提案します。各分析はボタンを押したときだけ実行されます。
+        公式ガイドを参考に、プロンプトの振り返りや書き換えを提案します。分析前にOpenAIへ送る内容を確認できます。履歴に現れない作業は評価できません。
       </p>
 
+      {previewError && <div className="adv-error">分析対象を取得できませんでした。除外設定、同期状態、対象期間を確認してください。</div>}
       <div className="period-selector">
         {PERIODS.map(d => (
           <button key={d} className={days === d ? 'active' : ''} onClick={() => setDays(d)}>
@@ -95,11 +89,11 @@ export function AdvicePage() {
           <select
             className="adv-select"
             value=""
-            onChange={(e) => { if (e.target.value) setDraft(e.target.value); }}
+            onChange={(e) => { const p = recent.data?.prompts[Number(e.target.value)]; if (e.target.value !== "" && p) { setDraft(p.prompt); setDraftProject(p.project_path); } }}
           >
             <option value="">最近のプロンプトから選ぶ...</option>
             {recent.data.prompts.map((p, i) => (
-              <option key={i} value={p.prompt}>
+              <option key={i} value={i}>
                 {p.prompt.substring(0, 100)}{p.prompt.length > 100 ? '...' : ''}
               </option>
             ))}
@@ -112,14 +106,14 @@ export function AdvicePage() {
           placeholder="ここにプロンプトを入力または貼り付け..."
           rows={4}
         />
-        <button className="adv-run-btn" onClick={runRewrite} disabled={draft.trim().length < 5 || improve.isFetching}>
-          {improve.isFetching ? '改善中...' : 'このプロンプトを改善'}
+        <button className="adv-run-btn" onClick={runRewrite} disabled={draft.trim().length < 5 || improve.isPending}>
+          {improve.isPending ? '改善中...' : 'このプロンプトを改善'}
         </button>
 
         {improve.isError && (
           <div className="adv-error">改善案の生成に失敗しました。OpenAI APIキーを確認してください。</div>
         )}
-        {improve.data && submittedPrompt && (
+        {improve.data && (
           <div className="adv-rewrite-result">
             <div className="adv-rewrite-pair">
               <div className="adv-rewrite-col original">
@@ -147,11 +141,11 @@ export function AdvicePage() {
       <section className="adv-section">
         <div className="adv-section-header">
           <h2>💸 高消費プロンプトのパターン</h2>
-          <button className="adv-run-btn small" onClick={() => insights.refetch()} disabled={insights.isFetching}>
-            {insights.isFetching ? '分析中...' : insights.data ? '再分析' : '分析を実行'}
+          <button className="adv-run-btn small" onClick={() => runInsights()} disabled={insights.isPending}>
+            {insights.isPending ? '分析中...' : insights.data ? '再分析' : '分析を実行'}
           </button>
         </div>
-        {insights.isFetching ? (
+        {insights.isPending ? (
           <div className="loading-container"><div className="spinner" /><p className="loading-text">消費上位プロンプトを分析中...</p></div>
         ) : insights.isError ? (
           <div className="adv-error">分析に失敗しました。期間内にデータがあるか、OpenAI APIキーを確認してください。</div>
@@ -163,7 +157,7 @@ export function AdvicePage() {
             </div>
             {insights.data.efficiency_observations.length > 0 && (
               <div className="adv-block">
-                <h3>効率に関する観察</h3>
+                <h3>利用状況に関する観察</h3>
                 <ul>{insights.data.efficiency_observations.map((p, i) => <li key={i}><Bilingual text={p} /></li>)}</ul>
               </div>
             )}
@@ -190,7 +184,7 @@ export function AdvicePage() {
             )}
           </div>
         ) : (
-          <p className="adv-placeholder">「分析を実行」で、消費上位プロンプトから高コストなパターンと改善策を抽出します。</p>
+          <p className="adv-placeholder">「分析を実行」で、消費上位プロンプトから消費量の多い履歴を振り返り、確認候補を提示します。</p>
         )}
       </section>
 
@@ -198,23 +192,23 @@ export function AdvicePage() {
       <section className="adv-section">
         <div className="adv-section-header">
           <h2>✅ ベストプラクティス評価</h2>
-          <button className="adv-run-btn small" onClick={() => bp.refetch()} disabled={bp.isFetching}>
-            {bp.isFetching ? '評価中...' : bp.data ? '再評価' : '評価を実行'}
+          <button className="adv-run-btn small" onClick={() => runBestPractices()} disabled={bp.isPending}>
+            {bp.isPending ? '評価中...' : bp.data ? '再評価' : '評価を実行'}
           </button>
         </div>
-        {bp.isFetching ? (
+        {bp.isPending ? (
           <div className="loading-container"><div className="spinner" /><p className="loading-text">最近の使い方を評価中...</p></div>
         ) : bp.isError ? (
           <div className="adv-error">評価に失敗しました。OpenAI APIキーを確認してください。</div>
         ) : bp.data ? (
           <div className="adv-insights">
-            <div className="adv-score">スコア: <strong>{bp.data.score.toFixed(0)}</strong> / 100</div>
+            <p>以下は選択した履歴の抜粋に基づく参考意見です。表示されていない作業は判断できません。</p>
             <div className="adv-block">
               <h3>できている点（{bp.data.passed_checks.length}）</h3>
               <ul>{bp.data.passed_checks.map((c, i) => <li key={i} className="pass"><Bilingual text={c} /></li>)}</ul>
             </div>
             <div className="adv-block">
-              <h3>改善が必要な点（{bp.data.failed_checks.length}）</h3>
+              <h3>確認したい点（{bp.data.failed_checks.length}）</h3>
               <ul>{bp.data.failed_checks.map((c, i) => <li key={i} className="fail"><Bilingual text={c} /></li>)}</ul>
             </div>
             <div className="adv-block">
@@ -223,7 +217,7 @@ export function AdvicePage() {
             </div>
           </div>
         ) : (
-          <p className="adv-placeholder">「評価を実行」で、最近のプロンプト履歴を公式ベストプラクティスに照らして採点します。</p>
+          <p className="adv-placeholder">「評価を実行」で、最近のプロンプトの抜粋を公式ガイドに照らして振り返ります。</p>
         )}
       </section>
     </div>

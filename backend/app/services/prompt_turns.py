@@ -6,22 +6,16 @@ usageはassistant側に分散して記録されるため、「本物のユーザ
 次のプロンプト直前までを1ターンとして区切り、区間内のusageを合算して
 プロンプトに帰属させる。
 
-正確性の担保:
+制限:
 - tool_result / isMeta / サブエージェント内部(isSidechain)のuserエントリは
   ターン起点にせず、消費は進行中のターンに帰属させる
 - ターン起点より前に現れたassistant消費（期間境界をまたいだセッションの続き等）は
-  unattributedとして別集計し、帰属率(attribution coverage)として検証可能にする
+  unattributedとして別集計する。取得漏れや帰属の正確性は検証できない
 """
 import json
 import re
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
-
-# Claude Sonnet 3.5の料金 (USD / 1M tokens) — analyzer.pyのコスト計算と同一
-PRICE_INPUT = 3.0
-PRICE_OUTPUT = 15.0
-PRICE_CACHE_WRITE = 3.75
-PRICE_CACHE_READ = 0.30
 
 # 一覧APIで返すプロンプト本文の上限文字数
 MAX_PROMPT_CHARS = 2000
@@ -47,20 +41,6 @@ HISTOGRAM_BUCKETS = [
     (50_000, 100_000, "50K〜100K"),
     (100_000, None, "100K〜"),
 ]
-
-
-def estimate_cost_usd(
-    input_tokens: int,
-    output_tokens: int,
-    cache_creation_tokens: int,
-    cache_read_tokens: int,
-) -> float:
-    return (
-        input_tokens / 1_000_000 * PRICE_INPUT
-        + output_tokens / 1_000_000 * PRICE_OUTPUT
-        + cache_creation_tokens / 1_000_000 * PRICE_CACHE_WRITE
-        + cache_read_tokens / 1_000_000 * PRICE_CACHE_READ
-    )
 
 
 def _extract_text(entry: Dict) -> Optional[str]:
@@ -99,8 +79,8 @@ def classify_user_entry(entry: Dict) -> Tuple[str, Optional[str], bool]:
       - "noise": tool_result / meta / サブエージェント内部など。
         ターン起点にはならず、消費は進行中のターンに含める
     """
-    if entry.get("isSidechain"):
-        # サブエージェントへの内部プロンプト。消費は親ターンに帰属させる
+    if entry.get("isSidechain") or entry.get("_analytics_source", {}).get("kind") == "subagent":
+        # サブエージェントへの内部プロンプト。別履歴や並行処理の親ターンは特定できない
         return ("noise", None, False)
 
     text = _extract_text(entry)
@@ -162,7 +142,7 @@ def _extract_project(entry: Dict) -> Optional[str]:
     return None
 
 
-def build_turns(rows: List[Dict]) -> Tuple[List[Dict], Dict]:
+def build_turns(rows: List[Dict], pricing_settings: Optional[Dict] = None) -> Tuple[List[Dict], Dict]:
     """DB行（session_id, timestamp順）からターン一覧と未帰属集計を作る。
 
     rows の各要素: session_id, timestamp, entry_type, message_json,
@@ -179,6 +159,8 @@ def build_turns(rows: List[Dict]) -> Tuple[List[Dict], Dict]:
         "assistant_messages": 0,
     }
 
+    # With equal timestamps the order of a user and assistant event is ambiguous.
+    ambiguous = {(r["session_id"], r["timestamp"]) for r in rows if r["entry_type"] == "user"}
     current: Optional[Dict] = None
     current_session: Optional[str] = None
 
@@ -191,16 +173,9 @@ def build_turns(rows: List[Dict]) -> Tuple[List[Dict], Dict]:
         if start and end and end > start:
             duration = round((end - start).total_seconds(), 1)
         turn["duration_seconds"] = duration
-        turn["total_tokens"] = turn["input_tokens"] + turn["output_tokens"]
-        turn["estimated_cost_usd"] = round(
-            estimate_cost_usd(
-                turn["input_tokens"],
-                turn["output_tokens"],
-                turn["cache_creation_tokens"],
-                turn["cache_read_tokens"],
-            ),
-            4,
-        )
+        turn["total_tokens"] = sum(turn[k] for k in ("input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens"))
+        cost = turn.pop("_cost")
+        turn["estimated_cost_usd"] = round(cost, 6) if cost is not None else None
         turns.append(turn)
 
     for row in rows:
@@ -225,6 +200,7 @@ def build_turns(rows: List[Dict]) -> Tuple[List[Dict], Dict]:
                 current = {
                     "session_id": session_id,
                     "project": _extract_project(entry),
+                    "project_path": entry.get("cwd"),
                     "timestamp": row["timestamp"],
                     "prompt": text[:MAX_PROMPT_CHARS],
                     "prompt_length": len(text),
@@ -235,6 +211,7 @@ def build_turns(rows: List[Dict]) -> Tuple[List[Dict], Dict]:
                     "cache_read_tokens": 0,
                     "assistant_messages": 0,
                     "tool_use_count": 0,
+                    "_cost": 0.0 if pricing_settings and pricing_settings.get("contract") == "api" else None,
                     "_start_ts": row["timestamp"],
                     "_end_ts": row["timestamp"],
                 }
@@ -243,13 +220,28 @@ def build_turns(rows: List[Dict]) -> Tuple[List[Dict], Dict]:
                 current["_end_ts"] = row["timestamp"]
 
         elif entry_type == "assistant":
-            target = current if current is not None else unattributed
+            sidechain = entry.get("isSidechain") or entry.get("_analytics_source", {}).get("kind") == "subagent"
+            target = current if current is not None and not sidechain and (session_id, row["timestamp"]) not in ambiguous else unattributed
             target["input_tokens"] += row["input_tokens"] or 0
             target["output_tokens"] += row["output_tokens"] or 0
             target["cache_creation_tokens"] += row["cache_creation_tokens"] or 0
             target["cache_read_tokens"] += row["cache_read_tokens"] or 0
             target["assistant_messages"] += 1
-            if current is not None:
+            if target is current and current is not None:
+                from .pricing import estimate_entry
+                priced_entry = dict(entry)
+                priced_message = dict(entry.get("message") or {})
+                priced_usage = dict(priced_message.get("usage") or {})
+                for source, column in (("input_tokens", "input_tokens"), ("output_tokens", "output_tokens"),
+                                       ("cache_creation_input_tokens", "cache_creation_tokens"), ("cache_read_input_tokens", "cache_read_tokens")):
+                    priced_usage[source] = row[column] or 0
+                if not priced_usage["cache_creation_input_tokens"]:
+                    priced_usage["cache_creation"] = {}
+                priced_message["usage"] = priced_usage
+                priced_entry["message"] = priced_message
+                cost = estimate_entry(priced_entry, pricing_settings or {})
+                if current["_cost"] is not None:
+                    current["_cost"] = current["_cost"] + cost if cost is not None else None
                 current["tool_use_count"] += _count_tool_uses(entry)
                 current["_end_ts"] = row["timestamp"]
 
@@ -264,7 +256,8 @@ def summarize_turns(turns: List[Dict], unattributed: Dict) -> Dict:
 
     per_turn = sorted(t["total_tokens"] for t in turns)
     total_tokens = sum(per_turn)
-    total_cost = sum(t["estimated_cost_usd"] for t in turns)
+    total_cost = (sum(t["estimated_cost_usd"] for t in turns)
+                  if turns and all(t["estimated_cost_usd"] is not None for t in turns) else None)
 
     def percentile(values: List[int], p: float) -> float:
         if not values:
@@ -297,7 +290,7 @@ def summarize_turns(turns: List[Dict], unattributed: Dict) -> Dict:
         + unattributed["cache_read_tokens"]
     )
     denominator = attributed_all + unattributed_all
-    coverage = 100.0 if denominator == 0 else attributed_all / denominator * 100
+    coverage = None if denominator == 0 else attributed_all / denominator * 100
 
     top_prompts = sorted(
         turns, key=lambda t: t["total_tokens"], reverse=True
@@ -307,14 +300,14 @@ def summarize_turns(turns: List[Dict], unattributed: Dict) -> Dict:
         "total_prompts": total_prompts,
         "command_prompts": command_prompts,
         "total_tokens": total_tokens,
-        "total_cost_usd": round(total_cost, 2),
+        "total_cost_usd": total_cost,
         "avg_tokens_per_prompt": round(total_tokens / total_prompts, 1) if total_prompts else 0.0,
         "median_tokens_per_prompt": round(percentile(per_turn, 0.5), 1),
         "p90_tokens_per_prompt": round(percentile(per_turn, 0.9), 1),
         "max_tokens_per_prompt": per_turn[-1] if per_turn else 0,
         "attributed_tokens": attributed_all,
         "unattributed_tokens": unattributed_all,
-        "attribution_coverage_pct": round(coverage, 2),
+        "attribution_coverage_pct": round(coverage, 2) if coverage is not None else None,
         "histogram": histogram,
         "top_prompts": top_prompts,
     }

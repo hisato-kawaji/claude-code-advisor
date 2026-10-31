@@ -39,3 +39,7 @@ concat.txt
 demo.gif
 screenshots/
 
+
+# Playwright output
+frontend/test-results/
+frontend/playwright-report/

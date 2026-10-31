@@ -50,6 +50,11 @@ class DatabaseManager:
                 )
             """)
 
+            columns = {row[1] for row in cursor.execute("PRAGMA table_info(session_entries)")}
+            if "request_key" not in columns:
+                cursor.execute("ALTER TABLE session_entries ADD COLUMN request_key TEXT")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_request_key ON session_entries(request_key)")
+
             # インデックスを作成（高速クエリのため）
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_timestamp
@@ -103,107 +108,72 @@ class DatabaseManager:
         unique_str = f"{session_id}|{timestamp}|{entry_type}|{content_preview}"
         return hashlib.sha256(unique_str.encode()).hexdigest()
 
-    def insert_entry(self, entry: Dict) -> bool:
-        """エントリを挿入（重複の場合はスキップ）"""
-        try:
-            unique_key = self.generate_unique_key(entry)
-
-            # タイムスタンプから日付を抽出
-            timestamp = entry.get("timestamp", "")
-            try:
-                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                date_str = dt.date().isoformat()
-            except:
-                date_str = datetime.now().date().isoformat()
-
-            # トークン情報を抽出
-            message = entry.get("message", {})
-            usage = message.get("usage", {})
-            input_tokens = usage.get("input_tokens", 0)
-            output_tokens = usage.get("output_tokens", 0)
-            cache_creation_tokens = usage.get("cache_creation_input_tokens", 0)
-            cache_read_tokens = usage.get("cache_read_input_tokens", 0)
-
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT OR IGNORE INTO session_entries
-                    (unique_key, session_id, timestamp, entry_type, date, message_json,
-                     input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    unique_key,
-                    entry.get("sessionId", ""),
-                    timestamp,
-                    entry.get("type", ""),
-                    date_str,
-                    json.dumps(entry),
-                    input_tokens,
-                    output_tokens,
-                    cache_creation_tokens,
-                    cache_read_tokens
-                ))
-
-                # 実際に挿入されたかチェック
-                return cursor.rowcount > 0
-        except Exception as e:
-            print(f"Error inserting entry: {e}")
-            return False
-
-    def bulk_insert_entries(self, entries: List[Dict]) -> tuple[int, int]:
-        """複数のエントリを一括挿入（重複排除）"""
-        inserted = 0
-        skipped = 0
-
+    def bulk_insert_entries(self, entries: List[Dict]) -> tuple[int, int, int]:
+        """Import stable UUIDs, retain legacy rows, and report malformed records separately."""
+        inserted = skipped = invalid = 0
+        request_keys = set()
         with self.get_connection() as conn:
             for entry in entries:
                 try:
-                    unique_key = self.generate_unique_key(entry)
-
-                    # タイムスタンプから日付を抽出
                     timestamp = entry.get("timestamp", "")
-                    try:
-                        dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                        date_str = dt.date().isoformat()
-                    except:
-                        date_str = datetime.now().date().isoformat()
-
-                    # トークン情報を抽出
-                    message = entry.get("message", {})
-                    usage = message.get("usage", {})
-                    input_tokens = usage.get("input_tokens", 0)
-                    output_tokens = usage.get("output_tokens", 0)
-                    cache_creation_tokens = usage.get("cache_creation_input_tokens", 0)
-                    cache_read_tokens = usage.get("cache_read_input_tokens", 0)
-
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        INSERT OR IGNORE INTO session_entries
+                    dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                    session_id = entry.get("sessionId")
+                    entry_type = entry.get("type")
+                    if not session_id or not entry_type:
+                        raise ValueError("missing session/type")
+                    message = entry.get("message") or {}
+                    usage = message.get("usage") or {} if isinstance(message, dict) else {}
+                    counts = [int(usage.get(k) or 0) for k in ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")]
+                    if any(n < 0 for n in counts):
+                        raise ValueError("negative usage")
+                    request_key = str(entry.get("requestId") or "") if entry_type == "assistant" else ""
+                    if request_key:
+                        request_keys.add(request_key)
+                    legacy_key = self.generate_unique_key(entry)
+                    uuid = entry.get("uuid")
+                    key = "uuid:" + str(uuid) if uuid else legacy_key
+                    old = conn.execute("SELECT id, message_json FROM session_entries WHERE unique_key = ?", (legacy_key,)).fetchone()
+                    if old and key != legacy_key:
+                        previous = json.loads(old["message_json"])
+                        if previous.get("uuid") == uuid:
+                            # Preserve existing historical values while recording provenance.
+                            conn.execute("UPDATE session_entries SET message_json = ?, request_key = ? WHERE id = ?", (json.dumps(entry), request_key or None, old["id"]))
+                            skipped += 1
+                            continue
+                    cursor = conn.execute("""INSERT OR IGNORE INTO session_entries
                         (unique_key, session_id, timestamp, entry_type, date, message_json,
-                         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        unique_key,
-                        entry.get("sessionId", ""),
-                        timestamp,
-                        entry.get("type", ""),
-                        date_str,
-                        json.dumps(entry),
-                        input_tokens,
-                        output_tokens,
-                        cache_creation_tokens,
-                        cache_read_tokens
-                    ))
-
-                    if cursor.rowcount > 0:
+                         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, request_key)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (key, session_id, timestamp, entry_type, dt.date().isoformat(),
+                         json.dumps(entry), *counts, request_key or None))
+                    if cursor.rowcount:
                         inserted += 1
                     else:
+                        # Refresh provenance and the request identity without creating duplicates.
+                        conn.execute("UPDATE session_entries SET message_json = ?, request_key = ? WHERE unique_key = ?",
+                                     (json.dumps(entry), request_key or None, key))
                         skipped += 1
-                except Exception as e:
-                    print(f"Error inserting entry: {e}")
-                    skipped += 1
-
-        return inserted, skipped
+                except (ValueError, TypeError, AttributeError, json.JSONDecodeError):
+                    invalid += 1
+            for request_key in request_keys:
+                rows = conn.execute("SELECT id, message_json FROM session_entries WHERE request_key = ? ORDER BY timestamp, id", (request_key,)).fetchall()
+                if len(rows) < 2:
+                    continue
+                # Multiple transcript blocks can repeat the same API request usage.
+                # Keep the final recorded usage once, retaining all message contents.
+                usage_fields = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+                chosen = None
+                for row in reversed(rows):
+                    record = json.loads(row["message_json"])
+                    usage = (record.get("message") or {}).get("usage") or {}
+                    if any(k in usage for k in usage_fields):
+                        chosen = (row["id"], [int(usage.get(k) or 0) for k in usage_fields])
+                        break
+                if chosen is None:
+                    continue
+                conn.execute("UPDATE session_entries SET input_tokens=0, output_tokens=0, cache_creation_tokens=0, cache_read_tokens=0 WHERE request_key = ?", (request_key,))
+                conn.execute("UPDATE session_entries SET input_tokens=?, output_tokens=?, cache_creation_tokens=?, cache_read_tokens=? WHERE id=?", (*chosen[1], chosen[0]))
+        return inserted, skipped, invalid
 
     def get_entries_by_date_range(self, start_date: str, end_date: str) -> List[Dict]:
         """日付範囲でエントリを取得"""
@@ -229,7 +199,7 @@ class DatabaseManager:
                 FROM session_entries
                 WHERE date >= ? AND date <= ?
                   AND entry_type IN ('user', 'assistant')
-                ORDER BY session_id, timestamp
+                ORDER BY session_id, timestamp, id
             """, (start_date, end_date))
 
             return [dict(row) for row in cursor.fetchall()]
