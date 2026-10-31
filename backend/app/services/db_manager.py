@@ -386,7 +386,7 @@ class DatabaseManager:
         """指定された日付の1時間ごとの統計を取得（JST対応）"""
         # 0時から23時までの全時間帯のデフォルト値を作成
         hourly_results = {
-            i: {"hour": i, "input_tokens": 0, "output_tokens": 0} for i in range(24)
+            i: {"hour": i, "input_tokens": 0, "output_tokens": 0, "cache_creation_tokens": 0, "cache_read_tokens": 0} for i in range(24)
         }
 
         with self.get_connection() as conn:
@@ -396,7 +396,9 @@ class DatabaseManager:
                 SELECT
                     CAST(strftime('%H', timestamp, '+9 hours') AS INTEGER) as hour,
                     SUM(input_tokens) as total_input_tokens,
-                    SUM(output_tokens) as total_output_tokens
+                    SUM(output_tokens) as total_output_tokens,
+                    SUM(cache_creation_tokens) as cache_creation_tokens,
+                    SUM(cache_read_tokens) as cache_read_tokens
                 FROM session_entries
                 WHERE date(timestamp, '+9 hours') = ?
                 GROUP BY hour
@@ -407,6 +409,8 @@ class DatabaseManager:
                 if hour in hourly_results:
                     hourly_results[hour]["input_tokens"] = row["total_input_tokens"] or 0
                     hourly_results[hour]["output_tokens"] = row["total_output_tokens"] or 0
+                hourly_results[hour]["cache_creation_tokens"] = row["cache_creation_tokens"] or 0
+                hourly_results[hour]["cache_read_tokens"] = row["cache_read_tokens"] or 0
         
         # 辞書の値のリストを時間順にソートして返す
         return sorted(list(hourly_results.values()), key=lambda x: x["hour"])

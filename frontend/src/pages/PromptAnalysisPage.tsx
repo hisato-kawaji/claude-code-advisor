@@ -138,6 +138,7 @@ export function PromptAnalysisPage() {
           <button
             key={d}
             className={days === d ? 'active' : ''}
+            aria-pressed={days === d}
             onClick={() => changePeriod(d)}
           >
             過去{d}日間

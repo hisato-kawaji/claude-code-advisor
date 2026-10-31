@@ -145,10 +145,21 @@ export interface HourlyUsage {
   hour: number;
   input_tokens: number;
   output_tokens: number;
+  cache_creation_tokens: number;
+  cache_read_tokens: number;
 }
 
 export interface SyncStatus {
   last_sync: string | null;
   total_entries: number;
   latest_data_date: string | null;
+}
+
+export interface CacheAdvice {
+  start_date: string; end_date: string; timezone: string;
+  totals: {input_tokens: number; output_tokens: number; cache_creation_tokens: number; cache_read_tokens: number};
+  request_count: number; missing_request_ids: number; cache_read_share_of_input_pct: number | null;
+  sources: {main: number; subagent: number; unknown: number};
+  top_sessions: {session_id: string; source_kind: 'main' | 'subagent' | 'unknown'; request_count: number; cache_read_tokens: number; cache_creation_tokens: number; avg_cache_read_per_request: number}[];
+  recommendations: {title: string; detail: string}[];
 }

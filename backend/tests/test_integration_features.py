@@ -2,9 +2,10 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 from app.api.analysis import get_collector
+from app.api.stats import get_collector as get_stats_collector
 from app.config import Settings, get_settings
 from app.main import app
 from app.services.data_collector import ClaudeDataCollector
@@ -22,6 +23,7 @@ class FeatureTests(unittest.TestCase):
         self.collector = ClaudeDataCollector(str(self.claude), str(root / 'db.sqlite'))
         self.settings = Settings(database_path=str(root / 'db.sqlite'), otel_receiver_token='test-token')
         app.dependency_overrides[get_collector] = lambda: self.collector
+        app.dependency_overrides[get_stats_collector] = lambda: self.collector
         app.dependency_overrides[get_settings] = lambda: self.settings
         self.client = TestClient(app)
 
@@ -59,6 +61,49 @@ class FeatureTests(unittest.TestCase):
         self.collector.sync_to_database()
         result = self.collector.get_prompt_turns(7)
         self.assertEqual(result['turns'][0]['total_tokens'], 14)
+        weekly = self.collector.get_weekly_history_optimized(1)[0]
+        monthly = self.collector.get_monthly_history_optimized(1)[0]
+        self.assertEqual(weekly['total_input_tokens'] + weekly['total_output_tokens'], 14)
+        self.assertEqual(monthly['total_input_tokens'] + monthly['total_output_tokens'], 14)
+
+    def test_weekly_monthly_boundaries_and_hourly_cache(self):
+        def item(uid, timestamp, n):
+            return {'uuid': uid, 'type': 'assistant', 'sessionId': 's', 'timestamp': timestamp,
+                    'message': {'usage': {'input_tokens': n, 'output_tokens': n, 'cache_creation_input_tokens': n, 'cache_read_input_tokens': n}}}
+        entries = [item('a', '2026-02-22T23:00:00Z', 1), item('b', '2026-02-23T00:00:00Z', 2),
+                   item('c', '2026-03-01T00:00:00Z', 4), item('d', '2026-03-02T00:00:00Z', 8)]
+        self.collector.db.bulk_insert_entries(entries)
+        weekly = self.client.get('/api/stats/weekly', params={'date': '2026-02-25'}).json()
+        self.assertEqual(weekly['current']['total_input_tokens'], 6)
+        self.assertEqual(weekly['previous']['total_input_tokens'], 1)
+        monthly_response = self.client.get('/api/stats/monthly', params={'date': '2026-03-31'})
+        self.assertEqual(monthly_response.status_code, 200)
+        self.assertEqual(monthly_response.json()['previous']['total_input_tokens'], 3)
+        self.assertEqual(monthly_response.json()['current']['total_input_tokens'], 12)
+        hourly = self.client.get('/api/stats/hourly', params={'date': '2026-03-02'}).json()
+        self.assertEqual(hourly[9]['cache_read_tokens'], 8)
+        self.assertEqual(hourly[9]['cache_creation_tokens'], 8)
+
+    def test_cache_advice_uses_complete_days_and_separates_agents(self):
+        today = datetime.now(timezone.utc).date()
+        def item(uid, offset, source, read, write):
+            return {'uuid': uid, 'requestId': 'req-' + uid, 'type': 'assistant', 'sessionId': 'session1',
+                    'timestamp': f'{(today - timedelta(days=offset)).isoformat()}T12:00:00Z',
+                    '_analytics_source': {'kind': source, 'path': source},
+                    'message': {'content': 'private content', 'usage': {'input_tokens': 10, 'output_tokens': 5,
+                        'cache_creation_input_tokens': write, 'cache_read_input_tokens': read}}}
+        self.collector.db.bulk_insert_entries([item('main', 0, 'session', 90, 0), item('child', 6, 'subagent', 190, 10), item('old', 7, 'session', 999, 0)])
+        result = self.client.get('/api/analysis/cache-advice?days=7')
+        self.assertEqual(result.status_code, 200)
+        data = result.json()
+        self.assertEqual(data['totals']['cache_read_tokens'], 280)
+        self.assertEqual(data['sources'], {'main': 90, 'subagent': 190, 'unknown': 0})
+        self.assertEqual(data['request_count'], 2)
+        self.assertEqual(data['cache_read_share_of_input_pct'], 90.3)
+        self.assertTrue(data['recommendations'])
+        self.assertNotIn('private content', result.text)
+        empty = self.client.get('/api/analysis/cache-advice?days=0')
+        self.assertEqual(empty.status_code, 422)
 
     def test_pricing_contract_model_dates_and_cache_ttl(self):
         rate = {'provider': 'anthropic', 'model': 'model-a', 'valid_from': '2026-01-01', 'valid_until': '2026-12-31', 'input': 3, 'output': 15, 'cache_read': .3, 'cache_write_5m': 3.75, 'cache_write_1h': 6}

@@ -139,7 +139,7 @@ class ClaudeDataCollector:
         from datetime import timezone
         start = date - timedelta(days=date.weekday())
         start = start.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
-        end = start + timedelta(days=7)
+        end = start + timedelta(days=6)
         return self.get_usage_stats(start, end)
 
     def get_monthly_stats(self, date: datetime) -> Dict:
@@ -150,7 +150,7 @@ class ClaudeDataCollector:
             end = start.replace(year=date.year + 1, month=1)
         else:
             end = start.replace(month=date.month + 1)
-        return self.get_usage_stats(start, end)
+        return self.get_usage_stats(start, end - timedelta(days=1))
 
     def get_hourly_stats(self, date: datetime) -> List[Dict]:
         """1時間ごとの統計を取得（DB使用）"""
@@ -292,185 +292,27 @@ class ClaudeDataCollector:
         return list(reversed(history))
 
     def get_weekly_history_optimized(self, weeks: int = 26) -> List[Dict]:
-        """最適化された週次履歴取得"""
+        """Use the same deduplicated database as the weekly summary (UTC)."""
         from datetime import timezone
-
-        all_sessions = self.get_all_sessions()
-
-        # 週ごとにデータをグループ化（週の開始日をキーとする）
-        weekly_data = defaultdict(lambda: {
-            "sessions": set(),
-            "total_messages": 0,
-            "total_input_tokens": 0,
-            "total_output_tokens": 0,
-            "cache_creation_tokens": 0,
-            "cache_read_tokens": 0,
-            "user_messages": 0,
-            "assistant_messages": 0,
-        })
-
-        for entry in all_sessions:
-            timestamp = entry.get("timestamp")
-            if not timestamp:
-                continue
-
-            try:
-                entry_date = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-            except:
-                continue
-
-            # 週の開始日（月曜日）をキーとして使用
-            week_start = (entry_date.date() - timedelta(days=entry_date.weekday()))
-
-            # セッションIDを記録
-            session_id = entry.get("sessionId")
-            if session_id:
-                weekly_data[week_start]["sessions"].add(session_id)
-
-            # メッセージタイプをカウント
-            entry_type = entry.get("type")
-            if entry_type == "user":
-                weekly_data[week_start]["user_messages"] += 1
-                weekly_data[week_start]["total_messages"] += 1
-            elif entry_type == "assistant":
-                weekly_data[week_start]["assistant_messages"] += 1
-                weekly_data[week_start]["total_messages"] += 1
-
-                # トークン使用量を集計
-                message = entry.get("message", {})
-                usage = message.get("usage", {})
-
-                weekly_data[week_start]["total_input_tokens"] += usage.get("input_tokens", 0)
-                weekly_data[week_start]["total_output_tokens"] += usage.get("output_tokens", 0)
-                weekly_data[week_start]["cache_creation_tokens"] += usage.get("cache_creation_input_tokens", 0)
-                weekly_data[week_start]["cache_read_tokens"] += usage.get("cache_read_input_tokens", 0)
-
-        # 過去N週分の結果を生成
+        today = datetime.now(timezone.utc).date()
+        start = today - timedelta(days=today.weekday())
         history = []
-        current_date = datetime.now().date()
-
-        for i in range(weeks):
-            week_date = current_date - timedelta(weeks=i)
-            week_start = week_date - timedelta(days=week_date.weekday())
-
-            data = weekly_data.get(week_start, {
-                "sessions": set(),
-                "total_messages": 0,
-                "total_input_tokens": 0,
-                "total_output_tokens": 0,
-                "cache_creation_tokens": 0,
-                "cache_read_tokens": 0,
-                "user_messages": 0,
-                "assistant_messages": 0,
-            })
-
-            result = {
-                "date": week_start.strftime("%Y-%m-%d"),
-                "total_sessions": len(data["sessions"]),
-                "total_messages": data["total_messages"],
-                "total_input_tokens": data["total_input_tokens"],
-                "total_output_tokens": data["total_output_tokens"],
-                "cache_creation_tokens": data["cache_creation_tokens"],
-                "cache_read_tokens": data["cache_read_tokens"],
-                "user_messages": data["user_messages"],
-                "assistant_messages": data["assistant_messages"],
-            }
-            history.append(result)
-
-        return list(reversed(history))
+        for index in reversed(range(weeks)):
+            first = start - timedelta(weeks=index)
+            last = first + timedelta(days=6)
+            history.append({"date": first.isoformat(), **self.db.get_analysis_stats(first.isoformat(), last.isoformat())})
+        return history
 
     def get_monthly_history_optimized(self, months: int = 12) -> List[Dict]:
-        """最適化された月次履歴取得"""
+        """Use the same deduplicated database as the monthly summary (UTC)."""
         from datetime import timezone
-
-        all_sessions = self.get_all_sessions()
-
-        # 月ごとにデータをグループ化
-        monthly_data = defaultdict(lambda: {
-            "sessions": set(),
-            "total_messages": 0,
-            "total_input_tokens": 0,
-            "total_output_tokens": 0,
-            "cache_creation_tokens": 0,
-            "cache_read_tokens": 0,
-            "user_messages": 0,
-            "assistant_messages": 0,
-        })
-
-        for entry in all_sessions:
-            timestamp = entry.get("timestamp")
-            if not timestamp:
-                continue
-
-            try:
-                entry_date = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-            except:
-                continue
-
-            # 月の開始日（1日）をキーとして使用
-            month_start = entry_date.date().replace(day=1)
-
-            # セッションIDを記録
-            session_id = entry.get("sessionId")
-            if session_id:
-                monthly_data[month_start]["sessions"].add(session_id)
-
-            # メッセージタイプをカウント
-            entry_type = entry.get("type")
-            if entry_type == "user":
-                monthly_data[month_start]["user_messages"] += 1
-                monthly_data[month_start]["total_messages"] += 1
-            elif entry_type == "assistant":
-                monthly_data[month_start]["assistant_messages"] += 1
-                monthly_data[month_start]["total_messages"] += 1
-
-                # トークン使用量を集計
-                message = entry.get("message", {})
-                usage = message.get("usage", {})
-
-                monthly_data[month_start]["total_input_tokens"] += usage.get("input_tokens", 0)
-                monthly_data[month_start]["total_output_tokens"] += usage.get("output_tokens", 0)
-                monthly_data[month_start]["cache_creation_tokens"] += usage.get("cache_creation_input_tokens", 0)
-                monthly_data[month_start]["cache_read_tokens"] += usage.get("cache_read_input_tokens", 0)
-
-        # 過去N月分の結果を生成
+        current = datetime.now(timezone.utc).date().replace(day=1)
         history = []
-        current_date = datetime.now()
-
-        for i in range(months):
-            year = current_date.year
-            month = current_date.month - i
-
-            while month <= 0:
-                month += 12
-                year -= 1
-
-            month_start = datetime(year, month, 1).date()
-
-            data = monthly_data.get(month_start, {
-                "sessions": set(),
-                "total_messages": 0,
-                "total_input_tokens": 0,
-                "total_output_tokens": 0,
-                "cache_creation_tokens": 0,
-                "cache_read_tokens": 0,
-                "user_messages": 0,
-                "assistant_messages": 0,
-            })
-
-            result = {
-                "date": month_start.strftime("%Y-%m-%d"),
-                "total_sessions": len(data["sessions"]),
-                "total_messages": data["total_messages"],
-                "total_input_tokens": data["total_input_tokens"],
-                "total_output_tokens": data["total_output_tokens"],
-                "cache_creation_tokens": data["cache_creation_tokens"],
-                "cache_read_tokens": data["cache_read_tokens"],
-                "user_messages": data["user_messages"],
-                "assistant_messages": data["assistant_messages"],
-            }
-            history.append(result)
-
+        for _ in range(months):
+            following = (current.replace(day=28) + timedelta(days=4)).replace(day=1)
+            last = following - timedelta(days=1)
+            history.append({"date": current.isoformat(), **self.db.get_analysis_stats(current.isoformat(), last.isoformat())})
+            current = (current - timedelta(days=1)).replace(day=1)
         return list(reversed(history))
 
     def sync_to_database(self) -> Dict[str, int]:

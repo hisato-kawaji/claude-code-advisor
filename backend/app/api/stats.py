@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List
 from app.models.schemas import UsageStats, ComparisonStats, HourlyUsage
 from app.services.data_collector import ClaudeDataCollector
@@ -38,7 +38,7 @@ async def get_daily_stats(
     if date:
         current_date = datetime.fromisoformat(date)
     else:
-        current_date = datetime.now()
+        current_date = datetime.now(timezone.utc)
 
     current_stats = collector.get_daily_stats(current_date)
     previous_date = current_date - timedelta(days=1)
@@ -63,7 +63,7 @@ async def get_weekly_stats(
     if date:
         current_date = datetime.fromisoformat(date)
     else:
-        current_date = datetime.now()
+        current_date = datetime.now(timezone.utc)
 
     current_stats = collector.get_weekly_stats(current_date)
     previous_date = current_date - timedelta(weeks=1)
@@ -90,14 +90,11 @@ async def get_monthly_stats(
     if date:
         current_date = datetime.fromisoformat(date)
     else:
-        current_date = datetime.now()
+        current_date = datetime.now(timezone.utc)
 
     current_stats = collector.get_monthly_stats(current_date)
-    # 先月の日付を計算
-    if current_date.month == 1:
-        previous_date = current_date.replace(year=current_date.year - 1, month=12)
-    else:
-        previous_date = current_date.replace(month=current_date.month - 1)
+    # 月末の日付が前月に存在しない場合も、前月を正しく特定する。
+    previous_date = current_date.replace(day=1) - timedelta(days=1)
 
     previous_stats = collector.get_monthly_stats(previous_date)
 

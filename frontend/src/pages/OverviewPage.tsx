@@ -12,7 +12,7 @@ type Period = 'daily' | 'weekly' | 'monthly';
 const getYesterday = () => {
   const d = new Date();
   d.setDate(d.getDate() - 1);
-  return d.toISOString().split('T')[0];
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
 const formatNumber = (n: number) => n.toLocaleString();
@@ -67,6 +67,8 @@ export function OverviewPage() {
       messages: item.total_messages,
       inputTokens: Math.round(item.total_input_tokens / 1000),
       outputTokens: Math.round(item.total_output_tokens / 1000),
+      cacheCreationTokens: Math.round(item.cache_creation_tokens / 1000),
+      cacheReadTokens: Math.round(item.cache_read_tokens / 1000),
     }));
   }, [historyData]);
 
@@ -82,10 +84,11 @@ export function OverviewPage() {
   return (
     <div className="overview-page">
       <h1 className="page-title">使用状況</h1>
+      <p>取得済みのローカル履歴の集計です。日次・週次・月次はUTC基準（週次は月曜開始）で、Claudeの週間利用上限やリセット時刻とは異なります。Claudeの他の画面や別端末の利用は含まれません。</p>
 
       <div className="period-selector">
         {(['daily', 'weekly', 'monthly'] as Period[]).map(p => (
-          <button key={p} className={period === p ? 'active' : ''} onClick={() => setPeriod(p)}>
+          <button key={p} className={period === p ? 'active' : ''} aria-pressed={period === p} onClick={() => setPeriod(p)}>
             {p === 'daily' ? '日次' : p === 'weekly' ? '週次' : '月次'}
           </button>
         ))}
@@ -116,6 +119,20 @@ export function OverviewPage() {
             <p className="ov-kpi-value">{formatNumber(stats.current.total_output_tokens)}</p>
             <p className="ov-kpi-change">{formatPercentage(stats.change_percentage?.total_output_tokens)}</p>
           </div>
+          <div className="ov-kpi-card">
+            <h3>キャッシュ書き込み</h3>
+            <p className="ov-kpi-value">{formatNumber(stats.current.cache_creation_tokens)}</p>
+            <p className="ov-kpi-change">{formatPercentage(stats.change_percentage?.cache_creation_tokens)}</p>
+          </div>
+          <div className="ov-kpi-card">
+            <h3>キャッシュ読み込み</h3>
+            <p className="ov-kpi-value">{formatNumber(stats.current.cache_read_tokens)}</p>
+            <p className="ov-kpi-change">{formatPercentage(stats.change_percentage?.cache_read_tokens)}</p>
+          </div>
+          <div className="ov-kpi-card">
+            <h3>総処理トークン（4区分合計）</h3>
+            <p className="ov-kpi-value">{formatNumber(stats.current.total_input_tokens + stats.current.total_output_tokens + stats.current.cache_creation_tokens + stats.current.cache_read_tokens)}</p>
+          </div>
         </div>
       ) : null}
 
@@ -144,11 +161,14 @@ export function OverviewPage() {
               <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" angle={-45} textAnchor="end" height={70} tick={{ fontSize: 11 }} />
-                <YAxis />
+                <YAxis yAxisId="standard" />
+                <YAxis yAxisId="cache" orientation="right" />
                 <Tooltip />
                 <Legend />
-                <Line type="monotone" dataKey="inputTokens" stroke="#ffc658" strokeWidth={2} name="Input (K)" dot={{ r: 3 }} isAnimationActive={false} />
-                <Line type="monotone" dataKey="outputTokens" stroke="#ff7c7c" strokeWidth={2} name="Output (K)" dot={{ r: 3 }} isAnimationActive={false} />
+                <Line yAxisId="standard" type="monotone" dataKey="inputTokens" stroke="#ffc658" strokeWidth={2} name="Input (K)" dot={{ r: 3 }} isAnimationActive={false} />
+                <Line yAxisId="standard" type="monotone" dataKey="outputTokens" stroke="#c2410c" strokeWidth={2} name="Output (K)" dot={{ r: 3 }} isAnimationActive={false} />
+                <Line yAxisId="standard" type="monotone" dataKey="cacheCreationTokens" stroke="#047857" strokeWidth={2} name="Cache write (K)" dot={{ r: 3 }} isAnimationActive={false} />
+                <Line yAxisId="cache" type="monotone" dataKey="cacheReadTokens" stroke="#1d4ed8" strokeWidth={2} name="Cache read (K・右軸)" dot={{ r: 3 }} isAnimationActive={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -160,7 +180,7 @@ export function OverviewPage() {
       {/* Hourly drill-down (旧モニタリング) */}
       <div className="ov-chart-card">
         <div className="ov-hourly-header">
-          <h2>時間別トークン消費（1日を掘り下げ）</h2>
+          <h2>時間別トークン消費（日本時間）</h2>
           <div className="ov-date-picker">
             <label htmlFor="ov-date">日付:</label>
             <input
@@ -185,12 +205,14 @@ export function OverviewPage() {
                 <Legend verticalAlign="top" />
                 <Bar dataKey="input_tokens" name="Input" fill="#8884d8" isAnimationActive={false} />
                 <Bar dataKey="output_tokens" name="Output" fill="#82ca9d" isAnimationActive={false} />
+                <Bar dataKey="cache_creation_tokens" name="Cache write" fill="#047857" isAnimationActive={false} />
+                <Bar dataKey="cache_read_tokens" name="Cache read" fill="#1d4ed8" isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
             <div className="ov-hourly-table-wrap">
               <table className="ov-hourly-table">
                 <thead>
-                  <tr><th>時間</th><th>Input</th><th>Output</th><th>累積 Input</th><th>累積 Output</th></tr>
+                  <tr><th>時間</th><th>Input</th><th>Output</th><th>Cache write</th><th>Cache read</th><th>累積 Input</th><th>累積 Output</th></tr>
                 </thead>
                 <tbody>
                   {hourlyTable.map(row => (
@@ -198,6 +220,8 @@ export function OverviewPage() {
                       <td>{`${row.hour}:00`}</td>
                       <td>{row.input_tokens.toLocaleString()}</td>
                       <td>{row.output_tokens.toLocaleString()}</td>
+                      <td>{row.cache_creation_tokens.toLocaleString()}</td>
+                      <td>{row.cache_read_tokens.toLocaleString()}</td>
                       <td>{row.cumulative_input.toLocaleString()}</td>
                       <td>{row.cumulative_output.toLocaleString()}</td>
                     </tr>

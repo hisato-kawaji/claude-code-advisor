@@ -12,8 +12,8 @@ export function SendPreview({ payload, onConfirm, onCancel }: {
         <p>以下のデータをOpenAIに送信して分析します。機密情報が含まれていないか確認してください。</p>
         <pre tabIndex={0}>{JSON.stringify(payload, null, 2)}</pre>
         <div className="send-preview-actions">
-          <button type="button" onClick={onCancel}>キャンセル</button>
-          <button type="button" onClick={onConfirm}>確認して送信</button>
+          <button className="button-secondary" type="button" onClick={onCancel}>キャンセル</button>
+          <button className="button-primary" type="button" onClick={onConfirm}>確認して送信</button>
         </div>
       </section>
     </div>

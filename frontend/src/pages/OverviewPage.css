@@ -140,3 +140,7 @@
     grid-template-columns: 1fr;
   }
 }
+
+.ov-kpi-card p {
+  color: #fff;
+}

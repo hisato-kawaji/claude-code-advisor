@@ -15,6 +15,7 @@ from app.services.data_collector import ClaudeDataCollector
 from app.services.analyzer import ClaudeAnalyzer
 from app.config import get_settings, Settings
 from app.services.settings_store import load_settings, redact, excluded
+from app.services.cache_advice import build_cache_advice
 from app.services.prompt_turns import classify_user_entry, summarize_turns
 import json
 
@@ -230,6 +231,12 @@ async def get_prompt_token_analysis(
         limit=limit,
         turns=page,
     )
+
+
+@router.get("/cache-advice")
+async def get_cache_advice(days: int = Query(7, ge=1, le=90), collector: ClaudeDataCollector = Depends(get_collector)):
+    """Cache observations from local deduplicated usage, without sending content externally."""
+    return build_cache_advice(collector.db, days)
 
 
 @router.get("/prompt-tokens/insights/preview")

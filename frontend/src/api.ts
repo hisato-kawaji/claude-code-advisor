@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { ComparisonStats, UsageStats, PerformanceAnalysis, BestPracticesCheck, PromptImprovement, RecentPrompt, TokenReflection, HourlyUsage, PromptTokenAnalysis, PromptTokenInsights, SyncStatus } from './types';
+import type { ComparisonStats, UsageStats, CacheAdvice, PerformanceAnalysis, BestPracticesCheck, PromptImprovement, RecentPrompt, TokenReflection, HourlyUsage, PromptTokenAnalysis, PromptTokenInsights, SyncStatus } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -37,6 +37,8 @@ export const statsApi = {
 };
 
 export const analysisApi = {
+  getCacheAdvice: (days: number) => api.get<CacheAdvice>('/api/analysis/cache-advice', { params: { days } }),
+
   getPerformance: (days: number = 7) =>
     api.get<PerformanceAnalysis>('/api/analysis/performance', { params: { days } }),
 

@@ -35,13 +35,13 @@ export function SettingsPage() {
     {form.contract === 'subscription' && <p>定額月額: {form.monthly_subscription_usd == null ? '未設定' : `$${form.monthly_subscription_usd.toFixed(2)} / 月`}。作業ごとの費用には配分しません。追加課金は含みません。</p>}
     <label>プロバイダー <input value={form.provider} onChange={e => setForm({ ...form, provider: e.target.value })} /></label>
     <label>モデルごとの単価表（JSON）<textarea aria-label="モデルごとの単価表" rows={10} value={rates} onChange={e => setRates(e.target.value)} /></label>
-    <button type="button" onClick={() => setRates(JSON.stringify([example], null, 2))}>単価入力例を表示</button>
+    <button className="button-secondary" type="button" onClick={() => setRates(JSON.stringify([example], null, 2))}>単価入力例を表示</button>
     <p>入力例は2026-10-31確認時点の参考です。モデルID、期間と実際の契約単価を確認してください。<a href="https://platform.claude.com/docs/en/about-claude/pricing" target="_blank" rel="noreferrer">公式料金</a></p>
     <h2>外部AIへの送信</h2>
     <p>履歴分析から除外するプロジェクトのパスまたは名前を1行ずつ指定します（* 使用可）。対象が特定できない履歴も除外します。手入力したプロンプトは対象外です。メール・主なキー類と下記の文字列は送信前にマスクされますが、すべての機密情報を検出できるわけではありません。</p>
     <label>除外プロジェクト<textarea aria-label="除外プロジェクト" rows={4} value={form.excluded_projects.join('\n')} onChange={e => setForm({ ...form, excluded_projects: e.target.value.split('\n') })} /></label>
     <label>追加でマスクする文字列<textarea aria-label="追加でマスクする文字列" rows={4} value={form.redact_literals.join('\n')} onChange={e => setForm({ ...form, redact_literals: e.target.value.split('\n') })} /></label>
-    <button type="button" onClick={save}>設定を保存</button> <span role="status">{message}</span>
+    <button className="button-primary" type="button" onClick={save}>設定を保存</button> <span role="status">{message}</span>
     <h2>OpenTelemetry</h2>
     <p>OTLP HTTP/JSON のログを任意で受け取ります。プロンプト本文とツール内容は保存しません。ローカル履歴とは別集計です。設定方法はREADMEを参照してください。</p>
     <p>受信: {telemetry.data?.enabled ? '有効' : '無効'} / APIリクエスト: {telemetry.data?.counts.api_request ?? 0} / プロンプトイベント: {telemetry.data?.counts.user_prompt ?? 0}</p>

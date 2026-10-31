@@ -11,6 +11,9 @@ test('sync, child attribution, privacy preview, settings, and telemetry', async 
   const stats = await (await request.get(`${api}/api/analysis/prompt-tokens?days=7`)).json();
   expect(stats.summary.unattributed_tokens).toBe(1500);
   expect(stats.turns[0].total_tokens).toBe(1500);
+  await page.reload();
+  await expect(page.locator('.ov-kpi-card').filter({ hasText: 'キャッシュ読み込み' })).toContainText('400');
+  await expect(page.locator('.ov-kpi-card').filter({ hasText: '総処理トークン' })).toContainText('3,000');
 
   await page.getByRole('link', { name: /設定とテレメトリー/ }).click();
   await page.getByLabel('契約').selectOption('api');
@@ -24,6 +27,9 @@ test('sync, child attribution, privacy preview, settings, and telemetry', async 
   const priced = await (await request.get(`${api}/api/analysis/prompt-tokens?days=7`)).json();
   expect(priced.turns[0].estimated_cost_usd).toBeCloseTo(0.006435, 6);
   await page.getByRole('link', { name: /改善アドバイス/ }).click();
+  const cacheSection = page.getByRole('region', { name: 'キャッシュ利用の振り返り' });
+  await expect(cacheSection).toContainText('改善候補と確認方法');
+  await expect(cacheSection).toContainText('子エージェント 200');
   await page.getByPlaceholder('ここにプロンプトを入力または貼り付け...').fill('Contact alice@example.com with example-secret');
   await page.getByRole('button', { name: 'このプロンプトを改善' }).click();
   const dialog = page.getByRole('dialog');

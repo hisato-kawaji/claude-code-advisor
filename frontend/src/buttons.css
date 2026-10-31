@@ -1,0 +1,73 @@
+/* Shared button colors: primary actions, secondary actions and choices. */
+button {
+  background: #fff;
+  color: #1e293b;
+  border: 1px solid #94a3b8;
+  border-radius: 8px;
+  font-weight: 600;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+button:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 3px;
+}
+
+button:is(.sync-button, .adv-run-btn, .pt-insights-button, .button-primary),
+.settings-page button.button-primary,
+.send-preview-actions button.button-primary {
+  background: #1d4ed8;
+  color: #fff;
+  border: 1px solid #1d4ed8;
+  box-shadow: none;
+}
+
+button:is(.sync-button, .adv-run-btn, .pt-insights-button, .button-primary):hover:not(:disabled),
+.settings-page button.button-primary:hover:not(:disabled),
+.send-preview-actions button.button-primary:hover:not(:disabled) {
+  background: #1e40af;
+  color: #fff;
+  border-color: #1e40af;
+  opacity: 1;
+}
+
+button:is(.pt-improve-btn, .button-secondary),
+.settings-page button.button-secondary,
+.send-preview-actions button.button-secondary,
+.pt-pagination button,
+.period-selector button {
+  background: #f8fafc;
+  color: #1e293b;
+  border: 1px solid #94a3b8;
+  box-shadow: none;
+}
+
+button:is(.pt-improve-btn, .button-secondary):hover:not(:disabled),
+.settings-page button.button-secondary:hover:not(:disabled),
+.send-preview-actions button.button-secondary:hover:not(:disabled),
+.pt-pagination button:hover:not(:disabled),
+.period-selector button:hover:not(:disabled) {
+  background: #e2e8f0;
+  color: #0f172a;
+  border-color: #64748b;
+  opacity: 1;
+}
+
+.period-selector button.active,
+.period-selector button.active:hover:not(:disabled) {
+  background: #1d4ed8;
+  color: #fff;
+  border-color: #1d4ed8;
+}
+
+button:disabled,
+button:is(.sync-button, .adv-run-btn, .pt-insights-button, .pt-improve-btn, .button-primary, .button-secondary):disabled,
+.pt-pagination button:disabled,
+.period-selector button:disabled {
+  background: #e2e8f0;
+  color: #475569;
+  border-color: #cbd5e1;
+  opacity: 1;
+  cursor: not-allowed;
+  box-shadow: none;
+}

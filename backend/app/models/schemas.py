@@ -143,6 +143,8 @@ class HourlyUsage(BaseModel):
     hour: int
     input_tokens: int
     output_tokens: int
+    cache_creation_tokens: int
+    cache_read_tokens: int
 
 
 class HourlyUsageResponse(BaseModel):

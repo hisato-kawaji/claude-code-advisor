@@ -221,3 +221,26 @@
     grid-template-columns: 1fr;
   }
 }
+
+.cache-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+.cache-summary div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  background: #f1f5f9;
+  border-radius: 8px;
+  color: #1e293b;
+}
+.cache-summary strong { font-size: 1.15rem; }
+.cache-table-wrap { overflow-x: auto; }
+.cache-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.cache-table th, .cache-table td { padding: 8px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+.cache-advice ol { padding-left: 1.5rem; }
+.cache-advice li { margin: 12px 0; }
+.cache-advice li p { margin: 4px 0; }

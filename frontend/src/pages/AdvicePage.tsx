@@ -29,6 +29,8 @@ export function AdvicePage() {
     if (state?.prompt) { setDraft(state.prompt); setDraftProject(state.projectPath ?? null); }
   }, [location.state]);
 
+  const cacheAdvice = useQuery({ queryKey: ['cacheAdvice', days],
+    queryFn: async () => (await analysisApi.getCacheAdvice(days)).data });
   const bp = useMutation({ mutationFn: async (promptExcerpts: string[]) =>
     (await analysisApi.getBestPractices(promptExcerpts)).data });
   const insights = useMutation({ mutationFn: async (preview: Awaited<ReturnType<typeof analysisApi.previewPromptTokenInsights>>['data']) =>
@@ -75,11 +77,36 @@ export function AdvicePage() {
       {previewError && <div className="adv-error">分析対象を取得できませんでした。除外設定、同期状態、対象期間を確認してください。</div>}
       <div className="period-selector">
         {PERIODS.map(d => (
-          <button key={d} className={days === d ? 'active' : ''} onClick={() => setDays(d)}>
+          <button key={d} className={days === d ? 'active' : ''} aria-pressed={days === d} onClick={() => setDays(d)}>
             過去{d}日間
           </button>
         ))}
       </div>
+
+      <section className="adv-section" aria-labelledby="cache-advice-title">
+        <h2 id="cache-advice-title">キャッシュ利用の振り返り</h2>
+        <p className="adv-hint">この分析はローカルで行います。キャッシュ読み込みは再利用の記録で、多いことだけでは無駄や効率の悪さを示しません。</p>
+        {cacheAdvice.isLoading ? <p>集計中...</p> : cacheAdvice.isError ? <div className="adv-error">キャッシュ利用状況を取得できませんでした。</div> : cacheAdvice.data && cacheAdvice.data.request_count > 0 ? (
+          <div className="cache-advice">
+            <p>対象: {cacheAdvice.data.start_date}〜{cacheAdvice.data.end_date}（UTC）。記録のあるリクエストまたは行 {cacheAdvice.data.request_count.toLocaleString()}件。</p>
+            <div className="cache-summary">
+              <div><span>キャッシュ読み込み</span><strong>{cacheAdvice.data.totals.cache_read_tokens.toLocaleString()}</strong></div>
+              <div><span>キャッシュ書き込み</span><strong>{cacheAdvice.data.totals.cache_creation_tokens.toLocaleString()}</strong></div>
+              <div><span>入力のうち読み込みの割合</span><strong>{cacheAdvice.data.cache_read_share_of_input_pct == null ? '不明' : `${cacheAdvice.data.cache_read_share_of_input_pct}%`}</strong></div>
+            </div>
+            <p className="adv-hint">割合は読み込み ÷（通常Input＋書き込み＋読み込み）。リクエスト単位のヒット率や、週間上限の消費率ではありません。{cacheAdvice.data.missing_request_ids > 0 && `リクエストIDのない ${cacheAdvice.data.missing_request_ids.toLocaleString()} 行は行単位で数えています。`}</p>
+            <p>読み込みの内訳: メイン {cacheAdvice.data.sources.main.toLocaleString()} / 子エージェント {cacheAdvice.data.sources.subagent.toLocaleString()} / 判別不可 {cacheAdvice.data.sources.unknown.toLocaleString()}</p>
+            <h3>読み込みが多いセッション・記録</h3>
+            <div className="cache-table-wrap"><table className="cache-table"><thead><tr><th>セッションID（先頭）</th><th>種別</th><th>リクエスト・行</th><th>読み込み</th><th>1回あたり平均</th></tr></thead><tbody>
+              {cacheAdvice.data.top_sessions.map((item, index) => <tr key={`${item.session_id}-${item.source_kind}-${index}`}><td>{item.session_id}</td><td>{item.source_kind === 'main' ? 'メイン' : item.source_kind === 'subagent' ? '子エージェント' : '判別不可'}</td><td>{item.request_count.toLocaleString()}</td><td>{item.cache_read_tokens.toLocaleString()}</td><td>{item.avg_cache_read_per_request.toLocaleString()}</td></tr>)}
+            </tbody></table></div>
+            <p className="adv-hint">別ファイルや未同期・別端末の履歴は含まれません。同じセッションの子エージェントは別行になる場合があります。平均は累積使用量を件数で割った値で、現在のコンテキストサイズではありません。</p>
+            <h3>改善候補と確認方法</h3>
+            <ol>{cacheAdvice.data.recommendations.map(item => <li key={item.title}><strong>{item.title}</strong><p>{item.detail}</p></li>)}</ol>
+            <p className="adv-hint">参照: <a href="https://code.claude.com/docs/en/prompt-caching" target="_blank" rel="noreferrer">Claude Codeのキャッシュ仕様</a> / <a href="https://code.claude.com/docs/en/costs" target="_blank" rel="noreferrer">コスト管理</a></p>
+          </div>
+        ) : <p className="adv-placeholder">この期間にトークン使用の記録がありません。同期状況や対象期間を確認してください。</p>}
+      </section>
 
       {/* 1. Prompt rewrite tool */}
       <section className="adv-section">
